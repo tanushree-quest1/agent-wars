@@ -220,6 +220,7 @@ async def adk(inc_id, image, audio):
 
     read_ts, act_ts = _mcp(["get_shipment_state", "get_telemetry_summary", "recall_similar_incidents", "find_alternate_vehicles", "scan_fleet_anomalies"]), \
         _mcp(["reroute", "reserve_dock_slot", "notify", "log_decision"])
+    extra_ts = []
     async def _state():
         return (await svc.get_session(app_name=APP, user_id=uid, session_id=sid)).state
     try:
@@ -234,11 +235,15 @@ async def adk(inc_id, image, audio):
                          message=f"No feasible vehicle for incident #{inc_id}. Manual action needed.")
             tools.log_decision(incident_id=inc_id, summary="No feasible replacement found; escalated.")
             return
-        # 2) fan-out: one feasibility assessor per candidate, in parallel
-        assessors = [LlmAgent(name=f"assess_{c['vehicle_id']}".replace("-", "_"), model=MODEL,
-                              instruction=ASSESS_TMPL.format(inc_id=inc_id, vid=vid, cargo=ship.get("cargo"), temp_class=ship.get("temp_class"),
-                                                             cid=c["vehicle_id"], pred=c.get("predicted_min"), cold=c.get("cold_ok"), sla=c.get("sla_ok"), cost=c.get("cost_inr")),
-                              tools=[read_ts], output_schema=Assessment, output_key=f"assess_{c['vehicle_id']}") for c in cands]
+        # 2) fan-out: one feasibility assessor per candidate, in parallel (each with its own stdio MCP toolset)
+        assessors = []
+        for c in cands:
+            ats = _mcp(["get_shipment_state", "get_telemetry_summary"])
+            extra_ts.append(ats)
+            assessors.append(LlmAgent(name=f"assess_{c['vehicle_id']}".replace("-", "_"), model=MODEL,
+                                      instruction=ASSESS_TMPL.format(inc_id=inc_id, vid=vid, cargo=ship.get("cargo"), temp_class=ship.get("temp_class"),
+                                                                     cid=c["vehicle_id"], pred=c.get("predicted_min"), cold=c.get("cold_ok"), sla=c.get("sla_ok"), cost=c.get("cost_inr")),
+                                      tools=[ats], output_schema=Assessment, output_key=f"assess_{c['vehicle_id']}"))
         assessments = {}
         try:
             await _consume(Runner(agent=ParallelAgent(name="feasibility_fanout", sub_agents=assessors), app_name=APP, session_service=svc), uid, sid,
@@ -256,7 +261,7 @@ async def adk(inc_id, image, audio):
         await _consume(Runner(agent=SequentialAgent(name="plan_and_act", sub_agents=[judge, actor]), app_name=APP, session_service=svc), uid, sid,
                        types.Content(role="user", parts=[types.Part(text=f"Plan and act on incident {inc_id}.")]), inc_id)
     finally:
-        for ts in (read_ts, act_ts):
+        for ts in (read_ts, act_ts, *extra_ts):
             try:
                 await ts.close()
             except Exception:

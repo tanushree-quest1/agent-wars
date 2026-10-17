@@ -15,9 +15,9 @@ COLS = {  # insert column order must match the table DDL below
                         "actual_min", "cost_inr", "confidence", "sla_ok", "cold_ok", "rating"),
 }
 DDL = [
-    f"CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.telemetry (ts DateTime, vehicle_id String, temp_class String, max_temp_c Nullable(Float64), temp_c Float64, lat Float64, lon Float64, speed Float64) ENGINE MergeTree ORDER BY (vehicle_id, ts)",
-    f"CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.tool_log (ts DateTime, tool String, args String, result String) ENGINE MergeTree ORDER BY ts",
-    f"CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.decision_events (ts DateTime, decision_id Int64, incident_id Int64, incident_type String, status String, predicted_min Float64, actual_min Nullable(Float64), cost_inr Float64, confidence Float64, sla_ok Int8, cold_ok Int8, rating Nullable(Int8)) ENGINE MergeTree ORDER BY ts",
+    f"CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.telemetry (ts DateTime('UTC'), vehicle_id String, temp_class String, max_temp_c Nullable(Float64), temp_c Float64, lat Float64, lon Float64, speed Float64) ENGINE MergeTree ORDER BY (vehicle_id, ts)",
+    f"CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.tool_log (ts DateTime('UTC'), tool String, args String, result String) ENGINE MergeTree ORDER BY ts",
+    f"CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.decision_events (ts DateTime('UTC'), decision_id Int64, incident_id Int64, incident_type String, status String, predicted_min Float64, actual_min Nullable(Float64), cost_inr Float64, confidence Float64, sla_ok Int8, cold_ok Int8, rating Nullable(Int8)) ENGINE MergeTree ORDER BY ts",
 ]
 
 
@@ -30,8 +30,7 @@ def _client():
     if _c is None and not _down and CLICKHOUSE_URL:
         try:
             import clickhouse_connect
-            _c = clickhouse_connect.get_client(dsn=CLICKHOUSE_URL, username=CLICKHOUSE_USER, password=CLICKHOUSE_PASSWORD,
-                                                server_timezone="UTC")   # host-tz containers must not skew naive-UTC timestamps
+            _c = clickhouse_connect.get_client(dsn=CLICKHOUSE_URL, username=CLICKHOUSE_USER, password=CLICKHOUSE_PASSWORD)
         except Exception as e:
             _down = True   # one warning, then silence: every write is a no-op until restart
             log.warning("ClickHouse connect failed (%s); analytics degrade to SQLite", e)
@@ -49,7 +48,21 @@ def _client():
 
 def _dt(v):
     d = v if isinstance(v, datetime) else datetime.fromisoformat(str(v))
-    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
+    return d.astimezone(timezone.utc) if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def reset():
+    global _ready
+    c = _client()
+    if not c:
+        return
+    try:
+        for t in COLS:
+            c.command(f"DROP TABLE IF EXISTS {CLICKHOUSE_DB}.{t}")
+        _ready = False
+        _client()
+    except Exception as e:
+        log.warning("ClickHouse reset failed (%s)", e)
 
 
 def write(table, row):

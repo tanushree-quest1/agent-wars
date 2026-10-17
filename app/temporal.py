@@ -9,7 +9,7 @@ from . import temporal_activities as acts
 from .config import NIGHTLY_REVIEW_MIN, TASK_QUEUE, TEMPORAL_URL, WORKFLOW_PREFIX
 from .temporal_workflows import IncidentInput, IncidentWorkflow, NightlyReviewWorkflow
 
-_c = None
+_c: dict[int, Client] = {}
 
 
 def enabled():
@@ -21,10 +21,10 @@ def wfid(inc_id):
 
 
 async def client():
-    global _c
-    if _c is None:
-        _c = await Client.connect(TEMPORAL_URL)
-    return _c
+    lid = id(asyncio.get_running_loop())
+    if lid not in _c:
+        _c[lid] = await Client.connect(TEMPORAL_URL)
+    return _c[lid]
 
 
 async def start_incident(inc_id):

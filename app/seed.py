@@ -35,6 +35,7 @@ SPARES = [("SPR-1", "Prakash", 2, "reefer", 12), ("SPR-2", "Bala", 3, "ambient",
 def seed():
     db.init()
     db.reset()
+    ch.reset()
     now = tools.now()
     for did, i, slots in DEPOTS:
         db.insert("depots", {"id": did, "name": WP[i][0] + (" Depot" if "Hub" not in WP[i][0] else ""), "lat": WP[i][1], "lon": WP[i][2], "dock_slots": slots})

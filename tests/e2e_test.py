@@ -111,7 +111,7 @@ def main():
         check("approve signalled after crash+restart", res.get("ok") and res.get("via") == "temporal", str(res))
         assert wait_for(lambda: latest_dec(i3).get("status") == "executed"), "approve did not execute"
         assert api(f"/api/decisions/{latest_dec(i3)['id']}/simulate-outcome", "POST").get("ok")
-        check("workflow completes after outcome+review", wait_for(lambda: asyncio.run(wf(i3, "describe")).status == "COMPLETED"))
+        check("workflow completes after outcome+review", wait_for(lambda: getattr(asyncio.run(wf(i3, "describe")).status, "name", "") == "COMPLETED"))
 
         # 5) ClickHouse: fleet scan via tool + mirrored tables
         from app import tools as t
