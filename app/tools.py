@@ -1,7 +1,7 @@
 """Core logistics logic — single source of truth.
 Exposed as MCP tools (mcp_server.py), called directly by the offline pipeline, and by REST (main.py).
 Safety policy (confidence / cost / cold-chain gate) lives INSIDE `reroute`, so no prompt can bypass it."""
-import functools, json, random, statistics
+import functools, json, random, re, statistics
 from datetime import datetime, timezone, timedelta
 from . import ch, db, geo
 from .config import AUTO_COST_LIMIT_INR, COST_PER_KM, HANDLING_MIN, LEARN_MIN_SAMPLES, MIN_CONFIDENCE
@@ -9,6 +9,21 @@ from .config import AUTO_COST_LIMIT_INR, COST_PER_KM, HANDLING_MIN, LEARN_MIN_SA
 IST = timezone(timedelta(hours=5, minutes=30))
 COLD_TOLERANCE_MIN = 60   # cumulative minutes above limit before pharma/dairy is written off
 PARTIES = ("driver", "replacement_driver", "customer", "dispatcher")
+_INJECT_RE = re.compile(r"(ignore\s+(all\s+)?(previous|prior|above)\s+instructions?|system\s*prompt\s*:|you\s+are\s+now\s+|set\s+confidence\s*[=:]|call\s+reroute)", re.I)
+_COST_RE = re.compile(r"(\bINR\s*[\d,]+(?:\.\d+)?|₹\s*[\d,]+(?:\.\d+)?|\bRs\.?\s*[\d,]+(?:\.\d+)?|\bcost\s+[\d,]+)", re.I)
+_PHONE_RE = re.compile(r"\+91[\s-]?\d{5}[\s-]?\d{5}")
+
+
+def _sanitize_text(text: str, max_len: int = 800) -> str:
+    clean = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", str(text or ""))
+    clean = clean.replace("</driver_report>", "").replace("<driver_report>", "")
+    clean = _INJECT_RE.sub("[redacted-directive]", clean)
+    return clean.strip()[:max_len]
+
+
+def _redact_customer_msg(msg: str) -> str:
+    out = _COST_RE.sub("[internal-cost-redacted]", str(msg or ""))
+    return _PHONE_RE.sub("[phone-redacted]", out)
 
 
 def now():
@@ -270,7 +285,11 @@ def reroute(incident_id: int, replacement_vehicle_id: str, confidence: float, re
     p = _plan_for(ctx, replacement_vehicle_id)
     if "error" in p:
         return {"status": "rejected", "reason": p["error"]}
-    conf = max(0.0, min(1.0, float(confidence)) - (_rule(ctx["raw_type"]).get("conf_penalty") or 0))
+    triage_conf = float(ctx["triage"].get("confidence") or 1.0)
+    raw_conf = min(float(confidence), triage_conf)   # guardrail: planner/actor can never inflate confidence above triage
+    if ctx["raw_type"] == "reefer_failure" and not _telemetry(ctx["vehicle_id"]).get("anomaly"):
+        raw_conf = min(raw_conf, 0.55)               # guardrail: uncorroborated reefer claim always escalates
+    conf = max(0.0, min(1.0, raw_conf) - (_rule(ctx["raw_type"]).get("conf_penalty") or 0))
     why = []
     if conf < MIN_CONFIDENCE:
         why.append(f"confidence {conf:.2f} below threshold {MIN_CONFIDENCE}")
@@ -283,7 +302,7 @@ def reroute(incident_id: int, replacement_vehicle_id: str, confidence: float, re
                                   "broken_vehicle": ctx["vehicle_id"], "vehicle_id": replacement_vehicle_id, "meet_lat": p["meet_lat"], "meet_lon": p["meet_lon"],
                                   "meet_label": p["meet_label"], "meet_depot": p["meet_depot"], "predicted_raw_min": p["predicted_raw_min"] / (1 + p["buffer_pct"] / 100),
                                   "predicted_min": p["predicted_min"], "sla_remaining_min": p["sla_remaining_min"], "sla_ok": int(p["sla_ok"]), "cold_ok": int(p["cold_ok"]),
-                                  "cost_inr": p["cost_inr"], "confidence": conf, "status": "pending_approval", "reasoning": reasoning[:1500],
+                                  "cost_inr": p["cost_inr"], "confidence": conf, "status": "pending_approval", "reasoning": _sanitize_text(reasoning, 1500),
                                   "escalation": "; ".join(why), "eta_local": p["eta_local"], "route": json.dumps(p["route"])})
     if status == "executed":
         if not _execute(did):
@@ -303,6 +322,10 @@ def reserve_dock_slot(depot_id: str, incident_id: int, start_in_min: int = 30) -
     dep = db.one("SELECT * FROM depots WHERE id=?", (depot_id,))
     if not dep:
         return {"reserved": False, "error": f"unknown depot {depot_id}"}
+    existing = db.one("SELECT depot_id, slot FROM reservations WHERE incident_id=?", (incident_id,))
+    if existing:
+        edep = db.one("SELECT name FROM depots WHERE id=?", (existing["depot_id"],)) or dep
+        return {"reserved": True, "depot": edep["name"], "slot": existing["slot"], "idempotent": True}
     for h in range(4):
         slot = (now() + timedelta(minutes=start_in_min + 60 * h)).astimezone(IST).strftime("%d %b %H:00 IST")
         if db.one("SELECT COUNT(*) n FROM reservations WHERE depot_id=? AND slot=?", (depot_id, slot))["n"] < dep["dock_slots"]:
@@ -316,14 +339,20 @@ def notify(incident_id: int, party: str, message: str, channel: str = "whatsapp"
     """Send a message. party is one of driver, replacement_driver, customer, dispatcher. (Channel delivery is simulated; wire WhatsApp/Twilio here.)"""
     if party not in PARTIES:
         return {"sent": False, "error": f"party must be one of {PARTIES}"}
-    db.insert("notifications", {"ts": iso(now()), "incident_id": incident_id, "party": party, "channel": channel, "message": message[:600]})
+    clean_msg = _redact_customer_msg(message) if party == "customer" else str(message or "")
+    clean_msg = clean_msg[:600]
+    existing = db.one("SELECT id FROM notifications WHERE incident_id=? AND party=?", (incident_id, party))
+    if existing:
+        db.run("UPDATE notifications SET ts=?, channel=?, message=? WHERE id=?", (iso(now()), channel, clean_msg, existing["id"]))
+        return {"sent": True, "simulated": True, "party": party, "idempotent": True}
+    db.insert("notifications", {"ts": iso(now()), "incident_id": incident_id, "party": party, "channel": channel, "message": clean_msg})
     return {"sent": True, "simulated": True, "party": party}
 
 
 @audited
 def log_decision(incident_id: int, summary: str) -> dict:
     """Write the final audit summary for the incident (what happened, what was done, why)."""
-    db.run("UPDATE incidents SET summary=? WHERE id=?", (summary[:1500], incident_id))
+    db.run("UPDATE incidents SET summary=? WHERE id=?", (_sanitize_text(summary, 1500), incident_id))
     return {"logged": True}
 
 
@@ -331,12 +360,14 @@ def log_decision(incident_id: int, summary: str) -> dict:
 def write_rule(incident_type: str, eta_buffer_pct: float, conf_penalty: float, rationale: str) -> dict:
     """Write or update a learned rule for an incident type (called by the REVIEW agent in the feedback loop).
     eta_buffer_pct pads predicted recovery time; conf_penalty lowers auto-act confidence. Values are clamped server-side."""
-    eta_buffer_pct = max(0.0, min(60.0, float(eta_buffer_pct)))
-    conf_penalty = max(0.0, min(0.30, float(conf_penalty)))
     if incident_type not in ("reefer_failure", "damaged_pallet", "breakdown", "road_blockage", "unknown"):
         return {"error": f"unknown incident_type {incident_type}"}
     support = db.one("SELECT COUNT(*) n FROM decisions WHERE incident_type=? AND actual_min IS NOT NULL", (incident_type,))["n"]
-    text = f"{incident_type}: {rationale[:300]} (+{eta_buffer_pct:.0f}% ETA buffer, -{conf_penalty:.2f} confidence)"
+    ov = db.one("SELECT COUNT(*) n FROM decisions WHERE incident_type=? AND status='overridden'", (incident_type,))["n"]
+    eta_buffer_pct = max(0.0, min(60.0, float(eta_buffer_pct))) if support >= LEARN_MIN_SAMPLES else 0.0
+    conf_penalty = max(0.0, min(0.30, float(conf_penalty))) if ov >= LEARN_MIN_SAMPLES else 0.0
+    clean_rat = _sanitize_text(rationale, 300)
+    text = f"{incident_type}: {clean_rat} (+{eta_buffer_pct:.0f}% ETA buffer, -{conf_penalty:.2f} confidence)"
     db.run("INSERT OR REPLACE INTO rules VALUES(?,?,?,?,?,?)", (incident_type, iso(now()), eta_buffer_pct, conf_penalty, text, support))
     return {"written": True, "incident_type": incident_type, "eta_buffer_pct": eta_buffer_pct, "conf_penalty": conf_penalty, "support": support}
 
@@ -365,11 +396,12 @@ def override_decision(did, vehicle_id, reason):
         return {"error": p["error"]}
     db.run("UPDATE decisions SET status='overridden' WHERE id=?", (did,))
     _mirror(did, "overridden")
+    clean_reason = _sanitize_text(reason, 300)
     nid = db.insert("decisions", {"incident_id": old["incident_id"], "ts": iso(now()), "incident_type": old["incident_type"], "mode": p["mode"], "shipment_id": p["shipment_id"],
                                   "broken_vehicle": old["broken_vehicle"], "vehicle_id": vehicle_id, "meet_lat": p["meet_lat"], "meet_lon": p["meet_lon"], "meet_label": p["meet_label"],
                                   "meet_depot": p["meet_depot"], "predicted_raw_min": p["predicted_raw_min"] / (1 + p["buffer_pct"] / 100), "predicted_min": p["predicted_min"],
                                   "sla_remaining_min": p["sla_remaining_min"], "sla_ok": int(p["sla_ok"]), "cold_ok": int(p["cold_ok"]), "cost_inr": p["cost_inr"], "confidence": 1.0,
-                                  "status": "pending_approval", "reasoning": f"Dispatcher override: {reason}", "eta_local": p["eta_local"], "override_of": old["vehicle_id"], "route": json.dumps(p["route"])})
+                                  "status": "pending_approval", "reasoning": f"Dispatcher override: {clean_reason}", "eta_local": p["eta_local"], "override_of": old["vehicle_id"], "route": json.dumps(p["route"])})
     _mirror(nid)
     if not _execute(nid):
         return {"error": "vehicle no longer available"}
