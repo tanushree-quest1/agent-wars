@@ -32,15 +32,14 @@ services:
   app:
     build: .
     depends_on: [temporal, clickhouse]
-    environment: {
-      TEMPORAL_URL: temporal:7233,
-      CLICKHOUSE_URL: http://clickhouse:8123,
-      CLICKHOUSE_USER: d2d,
-      CLICKHOUSE_PASSWORD: d2d,
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-},
-      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-},
-      NIGHTLY_REVIEW_MIN: ${NIGHTLY_REVIEW_MIN:-1440},
-    }
+    environment:
+      TEMPORAL_URL: temporal:7233
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: d2d
+      CLICKHOUSE_PASSWORD: d2d
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      NIGHTLY_REVIEW_MIN: ${NIGHTLY_REVIEW_MIN:-1440}
     ports: ["8000:8000"]
     volumes: [app-data:/app/data]
 
