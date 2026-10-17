@@ -67,9 +67,9 @@ def _ctx(incident_id):
     raw = t.get("incident_type") or "unknown"
     return {"incident": inc, "triage": t, "vehicle_id": inc["vehicle_id"], "raw_type": raw,
             "type": "breakdown" if raw == "unknown" else raw,
-            "pallets_affected": int(t.get("pallets_affected") or 0),
+            "pallets_affected": max(0, min(20, int(t.get("pallets_affected") or 0))),
             "drivable": bool(t.get("vehicle_drivable")) and raw != "unknown",
-            "delay_min": int(t.get("estimated_delay_min") or 60)}
+            "delay_min": max(5, min(720, int(t.get("estimated_delay_min") or 60)))}
 
 
 def _telemetry(vehicle_id, minutes=30):
@@ -124,7 +124,7 @@ def _plan_for(ctx, repl_id):
             return {"error": f"unknown vehicle {repl_id}"}
         if rv["status"] != "available":
             return {"error": f"{repl_id} is {rv['status']}, not available"}
-        move = ctx["pallets_affected"] if typ == "damaged_pallet" and ctx["pallets_affected"] > 0 else ship["pallets"]
+        move = min(ctx["pallets_affected"], ship["pallets"]) if typ == "damaged_pallet" and ctx["pallets_affected"] > 0 else ship["pallets"]
         if rv["capacity"] < move:
             return {"error": f"{repl_id} capacity {rv['capacity']} < {move} pallets"}
         if ship["temp_class"] == "reefer" and rv["temp_class"] != "reefer":
@@ -270,7 +270,11 @@ def reroute(incident_id: int, replacement_vehicle_id: str, confidence: float, re
     p = _plan_for(ctx, replacement_vehicle_id)
     if "error" in p:
         return {"status": "rejected", "reason": p["error"]}
-    conf = max(0.0, min(1.0, float(confidence)) - (_rule(ctx["raw_type"]).get("conf_penalty") or 0))
+    triage_conf = float(ctx["triage"].get("confidence")) if ctx["triage"].get("confidence") is not None else 1.0
+    raw_conf = min(float(confidence), triage_conf)
+    if ctx["raw_type"] == "reefer_failure" and not _telemetry(ctx["vehicle_id"]).get("anomaly"):
+        raw_conf = min(raw_conf, 0.55)
+    conf = max(0.0, min(1.0, raw_conf) - (_rule(ctx["raw_type"]).get("conf_penalty") or 0))
     why = []
     if conf < MIN_CONFIDENCE:
         why.append(f"confidence {conf:.2f} below threshold {MIN_CONFIDENCE}")
@@ -331,11 +335,14 @@ def log_decision(incident_id: int, summary: str) -> dict:
 def write_rule(incident_type: str, eta_buffer_pct: float, conf_penalty: float, rationale: str) -> dict:
     """Write or update a learned rule for an incident type (called by the REVIEW agent in the feedback loop).
     eta_buffer_pct pads predicted recovery time; conf_penalty lowers auto-act confidence. Values are clamped server-side."""
-    eta_buffer_pct = max(0.0, min(60.0, float(eta_buffer_pct)))
-    conf_penalty = max(0.0, min(0.30, float(conf_penalty)))
     if incident_type not in ("reefer_failure", "damaged_pallet", "breakdown", "road_blockage", "unknown"):
         return {"error": f"unknown incident_type {incident_type}"}
     support = db.one("SELECT COUNT(*) n FROM decisions WHERE incident_type=? AND actual_min IS NOT NULL", (incident_type,))["n"]
+    ov = db.one("SELECT COUNT(*) n FROM decisions WHERE incident_type=? AND status='overridden'", (incident_type,))["n"]
+    if support < LEARN_MIN_SAMPLES and ov < 2:
+        return {"error": f"insufficient sample support (outcomes={support}, overrides={ov}; need >={LEARN_MIN_SAMPLES} outcomes or >=2 overrides)"}
+    eta_buffer_pct = max(0.0, min(60.0, float(eta_buffer_pct))) if support >= LEARN_MIN_SAMPLES else 0.0
+    conf_penalty = max(0.0, min(0.30, float(conf_penalty))) if ov >= 2 else 0.0
     text = f"{incident_type}: {rationale[:300]} (+{eta_buffer_pct:.0f}% ETA buffer, -{conf_penalty:.2f} confidence)"
     db.run("INSERT OR REPLACE INTO rules VALUES(?,?,?,?,?,?)", (incident_type, iso(now()), eta_buffer_pct, conf_penalty, text, support))
     return {"written": True, "incident_type": incident_type, "eta_buffer_pct": eta_buffer_pct, "conf_penalty": conf_penalty, "support": support}
