@@ -1,0 +1,11 @@
+.git
+.venv
+.agents
+__pycache__
+*.pyc
+web/node_modules
+web/.angular
+data/*.sqlite*
+data/*.log
+data/uploads/*
+.env

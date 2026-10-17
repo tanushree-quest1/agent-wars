@@ -33,6 +33,9 @@ def decode_polyline(s):
     return pts
 
 
+_HTTP = httpx.Client(timeout=8.0)
+
+
 @functools.lru_cache(maxsize=4096)
 def _route(o, d):
     if haversine(o, d) < 0.05:
@@ -42,7 +45,7 @@ def _route(o, d):
             body = {"origin": {"location": {"latLng": {"latitude": o[0], "longitude": o[1]}}},
                     "destination": {"location": {"latLng": {"latitude": d[0], "longitude": d[1]}}},
                     "travelMode": "DRIVE", "routingPreference": "TRAFFIC_AWARE", "units": "METRIC"}
-            r = httpx.post("https://routes.googleapis.com/directions/v2:computeRoutes", json=body, timeout=10,
+            r = _HTTP.post("https://routes.googleapis.com/directions/v2:computeRoutes", json=body,
                            headers={"X-Goog-Api-Key": MAPS_KEY,
                                     "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline"})
             r.raise_for_status()
