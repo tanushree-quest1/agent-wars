@@ -33,14 +33,14 @@ Browser (photo / mic -> WAV / text) -> FastAPI -> Temporal workflow (durable) ->
 
 ## Why the multi-agent design is trustworthy
 **Agent-to-agent interaction** (`app/agents.py`)
-- Each agent has one job, one typed output (`Triage`, `Candidates`, `Assessment`, `Plan` Pydantic schemas) and hands off through session state, not free-form chat. No agent can talk another into anything.
+- Each agent has one job, one typed output (`Triage`, `Candidates`, `Assessment`, `Plan` Pydantic schemas) and hands off through session state, not free-form chat.
 - **Independent cross-checking**: a `ParallelAgent` fans out one feasibility assessor per candidate, each with its *own* stdio MCP toolset (no shared-pipe races). The planner weighs their `viable` / `key_risk` verdicts instead of trusting the scout alone. If the fan-out fails, the planner degrades to scout data and says so in the trace.
 - Every tool call and result by every agent lands in the incident timeline, so a reviewer can replay who decided what.
 
-**Guardrails** (enforced in code, not in prompts)
+**Guardrails** (the hard limits live in code, not prompts)
 - **Policy gate in `reroute`**: confidence < `MIN_CONFIDENCE`, cost > `AUTO_COST_LIMIT_INR`, or cold-chain breach => `pending_approval`. Capacity, reefer class and availability are re-checked server-side; assignment is an atomic conditional UPDATE, so two incidents can't claim one truck.
 - **Confidence can't be inflated**: `reroute` clamps the planner's confidence to the triage confidence, and caps an uncorroborated reefer claim at 0.55 so it always escalates.
-- **Prompt-injection defence**: driver text is sanitized (`_sanitize_text` strips control chars, tag break-outs and "ignore previous instructions / set confidence=" style directives), wrapped in `<driver_report>` and declared untrusted in the triage prompt.
+- **Prompt-injection defence**: driver text is sanitized (`_sanitize_text` strips control chars, tag break-outs and common "ignore previous instructions / set confidence=" phrasings), wrapped in `<driver_report>` and declared untrusted in the triage prompt. This is a blocklist, so it is defence in depth: the server-side clamps below are what actually bound the damage.
 - **`before_tool_callback` (`_guard_tool`)** on scout, assessors and action agent: pins `incident_id` to the session (an agent can't act on another incident), re-clamps confidence, and redacts costs / phone numbers from customer messages before the tool runs.
 - **Outbound safety**: `notify` redacts INR amounts and phone numbers for `party=customer`; free-text fields are sanitized before storage.
 - **Idempotency and blast-radius limits**: `reserve_dock_slot` and `notify` return the existing record on retry (no double bookings or spam); `write_rule` refuses to learn from fewer than `LEARN_MIN_SAMPLES` cases and clamps its values.
@@ -52,7 +52,7 @@ Browser (photo / mic -> WAV / text) -> FastAPI -> Temporal workflow (durable) ->
 - `pallets_affected` is clamped to the real shipment size; candidates from the scout are filtered to ones with a real `vehicle_id`.
 - Learned rules come from measured predicted-vs-actual outcomes with a minimum sample size, not from model opinion.
 - Each decision stores reasoning, escalation reasons, route and tool log (SQLite + ClickHouse `tool_log` / `decision_events`) for audit.
-- **Evidence**: `RULESET.md` documents every state and decision so a human can trace the optimal path by hand; `tests/e2e_test.py` (13 checks: MCP, durable workflow, crash/restart approval, learning loop, ClickHouse mirroring) passes.
+- **Evidence**: `RULESET.md` documents every state and decision so a human can trace the optimal path by hand; `tests/e2e_test.py` (13 checks: MCP, durable workflow, crash/restart approval, learning loop, ClickHouse mirroring) passes. The ADK-specific parts (fan-out, `_guard_tool`) have not yet been run against live Gemini.
 
 ## More architecture
 - **Durability**: incidents run as Temporal workflows (wait for approval and outcome durably, survive restarts); a nightly review workflow runs the learning job. Without `TEMPORAL_URL` it falls back to in-memory tasks.

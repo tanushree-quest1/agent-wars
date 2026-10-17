@@ -1,58 +1,24 @@
-INFO:     Started server process [4463]
+INFO:     Started server process [5464]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8666 (Press CTRL+C to quit)
-INFO:     127.0.0.1:50232 - "GET /api/health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50233 - "POST /api/incidents HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50236 - "GET /api/incidents/25 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50239 - "GET /api/incidents/25 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50240 - "GET /api/incidents/25 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50241 - "POST /api/decisions/25/simulate-outcome HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50242 - "GET /api/state HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50243 - "GET /api/state HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50244 - "POST /api/incidents HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50245 - "GET /api/incidents/26 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50246 - "GET /api/incidents/26 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50247 - "GET /api/incidents/26 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50248 - "POST /api/decisions/26/approve HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50249 - "GET /api/incidents/26 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50250 - "GET /api/incidents/26 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50251 - "POST /api/decisions/26/simulate-outcome HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50252 - "GET /api/state HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50253 - "GET /api/state HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50254 - "POST /api/incidents HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50255 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50259 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     Started server process [4507]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://127.0.0.1:8666 (Press CTRL+C to quit)
-INFO:     127.0.0.1:50265 - "GET /api/health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50266 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50267 - "POST /api/decisions/27/approve HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50270 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50271 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50272 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50273 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50274 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50275 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50276 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50277 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50278 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50279 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50280 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50281 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50282 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50283 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50284 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50285 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50286 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50287 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50288 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50291 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50292 - "GET /api/incidents/27 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50293 - "POST /api/decisions/27/simulate-outcome HTTP/1.1" 200 OK
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
-INFO:     Finished server process [4507]
+INFO:     127.0.0.1:50327 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50328 - "POST /api/incidents HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50331 - "GET /api/incidents/28 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50334 - "GET /api/incidents/28 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50335 - "GET /api/incidents/28 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50336 - "POST /api/decisions/28/simulate-outcome HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50337 - "GET /api/state HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50338 - "GET /api/state HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50339 - "POST /api/incidents HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50340 - "GET /api/incidents/29 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50341 - "GET /api/incidents/29 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50342 - "GET /api/incidents/29 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50343 - "POST /api/decisions/29/approve HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50344 - "GET /api/incidents/29 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50345 - "GET /api/incidents/29 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50346 - "POST /api/decisions/29/simulate-outcome HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50347 - "GET /api/state HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50348 - "GET /api/state HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50349 - "POST /api/incidents HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50350 - "GET /api/incidents/30 HTTP/1.1" 200 OK
