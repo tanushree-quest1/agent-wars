@@ -3,7 +3,7 @@ Exposed as MCP tools (mcp_server.py), called directly by the offline pipeline, a
 Safety policy (confidence / cost / cold-chain gate) lives INSIDE `reroute`, so no prompt can bypass it."""
 import functools, json, random, statistics
 from datetime import datetime, timezone, timedelta
-from . import db, geo
+from . import ch, db, geo
 from .config import AUTO_COST_LIMIT_INR, COST_PER_KM, HANDLING_MIN, LEARN_MIN_SAMPLES, MIN_CONFIDENCE
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -30,9 +30,20 @@ def audited(fn):
             res = fn(*a, **k)
         except Exception as e:  # tools never raise into the agent
             res = {"error": f"{type(e).__name__}: {e}"}
-        db.run("INSERT INTO tool_log VALUES(?,?,?,?)", (iso(now()), fn.__name__, json.dumps([a, k], default=str)[:2000], json.dumps(res, default=str)[:4000]))
+        s_args, s_res = json.dumps([a, k], default=str)[:2000], json.dumps(res, default=str)[:4000]
+        db.run("INSERT INTO tool_log VALUES(?,?,?,?)", (iso(now()), fn.__name__, s_args, s_res))
+        ch.write("tool_log", {"ts": iso(now()), "tool": fn.__name__, "args": s_args, "result": s_res})
         return res
     return w
+
+
+def _mirror(did, status=None):
+    """Append a decision lifecycle event to ClickHouse (source of truth stays SQLite)."""
+    d = db.one("SELECT * FROM decisions WHERE id=?", (did,))
+    if d:
+        ch.write("decision_events", {"ts": iso(now()), "decision_id": d["id"], "incident_id": d["incident_id"], "incident_type": d["incident_type"],
+                                    "status": status or d["status"], "predicted_min": d["predicted_min"], "actual_min": d["actual_min"],
+                                    "cost_inr": d["cost_inr"], "confidence": d["confidence"], "sla_ok": d["sla_ok"], "cold_ok": d["cold_ok"], "rating": d["rating"]})
 
 
 # ---------------------------------------------------------------- helpers
@@ -161,6 +172,7 @@ def _execute(did):
         c.execute("UPDATE shipments SET status='recovering' WHERE id=?", (d["shipment_id"],))
         c.execute("UPDATE decisions SET status='executed' WHERE id=?", (did,))
         c.execute("UPDATE incidents SET status='actioned' WHERE id=?", (d["incident_id"],))
+    _mirror(did, "executed")
     return True
 
 
@@ -189,6 +201,20 @@ def _post_actions(did):
 
 
 # ---------------------------------------------------------------- MCP tools (agent-facing)
+@audited
+def scan_fleet_anomalies(minutes: int = 10) -> dict:
+    """ClickHouse fleet scan: reefer trucks with readings above their temperature limit or a rising drift in the last N minutes. Falls back to SQLite per-truck summaries when ClickHouse is off."""
+    rows = ch.fleet_drift(minutes)
+    if rows is not None:
+        return {"window_min": minutes, "source": "clickhouse", "anomalies": rows}
+    out = []
+    for s in db.q("SELECT vehicle_id FROM shipments WHERE temp_class='reefer' AND status IN ('in_transit','recovering')"):
+        t = _telemetry(s["vehicle_id"], minutes)
+        if t.get("anomaly"):
+            out.append(t)
+    return {"window_min": minutes, "source": "sqlite", "anomalies": out}
+
+
 @audited
 def get_shipment_state(vehicle_id: str) -> dict:
     """Get a vehicle's position/status, its active shipment, SLA minutes remaining and baseline ETA to destination."""
@@ -265,6 +291,7 @@ def reroute(incident_id: int, replacement_vehicle_id: str, confidence: float, re
             return {"status": "rejected", "reason": f"{replacement_vehicle_id} was just taken by another incident; pick another"}
     else:
         db.run("UPDATE incidents SET status='awaiting_approval' WHERE id=?", (incident_id,))
+    _mirror(did)
     return {"status": status, "decision_id": did, "shipment_id": p["shipment_id"], "customer": p["customer"], "replacement_vehicle_id": replacement_vehicle_id,
             "replacement_driver": p.get("replacement_driver"), "meet_point": p["meet_label"], "meet_depot": p["meet_depot"], "predicted_total_min": p["predicted_min"],
             "eta_local": p["eta_local"], "sla_ok": p["sla_ok"], "cold_ok": p["cold_ok"], "cost_inr": p["cost_inr"], "effective_confidence": round(conf, 2), "escalation_reasons": why}
@@ -300,6 +327,20 @@ def log_decision(incident_id: int, summary: str) -> dict:
     return {"logged": True}
 
 
+@audited
+def write_rule(incident_type: str, eta_buffer_pct: float, conf_penalty: float, rationale: str) -> dict:
+    """Write or update a learned rule for an incident type (called by the REVIEW agent in the feedback loop).
+    eta_buffer_pct pads predicted recovery time; conf_penalty lowers auto-act confidence. Values are clamped server-side."""
+    eta_buffer_pct = max(0.0, min(60.0, float(eta_buffer_pct)))
+    conf_penalty = max(0.0, min(0.30, float(conf_penalty)))
+    if incident_type not in ("reefer_failure", "damaged_pallet", "breakdown", "road_blockage", "unknown"):
+        return {"error": f"unknown incident_type {incident_type}"}
+    support = db.one("SELECT COUNT(*) n FROM decisions WHERE incident_type=? AND actual_min IS NOT NULL", (incident_type,))["n"]
+    text = f"{incident_type}: {rationale[:300]} (+{eta_buffer_pct:.0f}% ETA buffer, -{conf_penalty:.2f} confidence)"
+    db.run("INSERT OR REPLACE INTO rules VALUES(?,?,?,?,?,?)", (incident_type, iso(now()), eta_buffer_pct, conf_penalty, text, support))
+    return {"written": True, "incident_type": incident_type, "eta_buffer_pct": eta_buffer_pct, "conf_penalty": conf_penalty, "support": support}
+
+
 # ---------------------------------------------------------------- dispatcher + feedback loop (REST-facing)
 def approve_decision(did):
     d = db.one("SELECT * FROM decisions WHERE id=?", (did,))
@@ -323,11 +364,13 @@ def override_decision(did, vehicle_id, reason):
             db.run("UPDATE vehicles SET status='dispatched' WHERE id=?", (old["vehicle_id"],))
         return {"error": p["error"]}
     db.run("UPDATE decisions SET status='overridden' WHERE id=?", (did,))
+    _mirror(did, "overridden")
     nid = db.insert("decisions", {"incident_id": old["incident_id"], "ts": iso(now()), "incident_type": old["incident_type"], "mode": p["mode"], "shipment_id": p["shipment_id"],
                                   "broken_vehicle": old["broken_vehicle"], "vehicle_id": vehicle_id, "meet_lat": p["meet_lat"], "meet_lon": p["meet_lon"], "meet_label": p["meet_label"],
                                   "meet_depot": p["meet_depot"], "predicted_raw_min": p["predicted_raw_min"] / (1 + p["buffer_pct"] / 100), "predicted_min": p["predicted_min"],
                                   "sla_remaining_min": p["sla_remaining_min"], "sla_ok": int(p["sla_ok"]), "cold_ok": int(p["cold_ok"]), "cost_inr": p["cost_inr"], "confidence": 1.0,
                                   "status": "pending_approval", "reasoning": f"Dispatcher override: {reason}", "eta_local": p["eta_local"], "override_of": old["vehicle_id"], "route": json.dumps(p["route"])})
+    _mirror(nid)
     if not _execute(nid):
         return {"error": "vehicle no longer available"}
     _post_actions(nid)
@@ -350,6 +393,7 @@ def simulate_outcome(did, actual_min=None):
         return {"error": "only executed decisions have outcomes"}
     act = float(actual_min) if actual_min else d["predicted_raw_min"] * FACTOR.get(d["incident_type"], 1.15) * random.uniform(.96, 1.04)
     db.run("UPDATE decisions SET actual_min=?, sla_held=? WHERE id=?", (round(act), int(act <= d["sla_remaining_min"]), did))
+    _mirror(did, "outcome")
     db.run("UPDATE shipments SET status='delivered' WHERE id=?", (d["shipment_id"],))
     if d["mode"] == "swap":
         s = db.one("SELECT * FROM shipments WHERE id=?", (d["shipment_id"],))

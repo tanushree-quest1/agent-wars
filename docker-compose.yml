@@ -1,0 +1,44 @@
+name: dock-to-door
+
+services:
+  temporal-postgres:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: temporal, POSTGRES_PASSWORD: temporal, POSTGRES_DB: temporal}
+    volumes: [temporal-pg:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U temporal"], interval: 5s, retries: 12}
+
+  temporal:
+    image: temporalio/auto-setup:1.32.0
+    depends_on: {temporal-postgres: {condition: service_healthy}}
+    environment: {
+      DB: postgres12, DB_PORT: 5432,
+      POSTGRES_USER: temporal, POSTGRES_PWD: temporal, POSTGRES_SEEDS: temporal-postgres,
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/dynamicconfig/docker.yaml,
+    }
+    volumes: ["./deploy/temporal-dynamicconfig.yaml:/etc/temporal/dynamicconfig/docker.yaml:ro"]
+
+  temporal-ui:
+    image: temporalio/ui:2.54.1
+    depends_on: [temporal]
+    environment: {TEMPORAL_ADDRESS: temporal:7233}
+    ports: ["8080:8080"]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    volumes: [clickhouse:/var/lib/clickhouse]
+    ports: ["8123:8123"]
+
+  app:
+    build: .
+    depends_on: [temporal, clickhouse]
+    environment: {
+      TEMPORAL_URL: temporal:7233,
+      CLICKHOUSE_URL: http://clickhouse:8123,
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-},
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-},
+      NIGHTLY_REVIEW_MIN: ${NIGHTLY_REVIEW_MIN:-1440},
+    }
+    ports: ["8000:8000"]
+    volumes: [app-data:/app/data]
+
+volumes: {temporal-pg: {}, clickhouse: {}, app-data: {}}

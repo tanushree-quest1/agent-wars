@@ -5,7 +5,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import agents, db, seed, tools
+from . import agents, ch, db, feedback, seed, temporal, tools
 from .config import DATA, GOOGLE_API_KEY, MAPS_KEY, MODEL
 
 TASKS = set()
@@ -16,6 +16,8 @@ async def lifespan(_):
     db.init()
     if not db.one("SELECT 1 x FROM vehicles"):
         seed.seed()
+    if temporal.enabled():
+        temporal.start_worker_thread()   # one process, one container: API + Temporal worker
     yield
 
 app = FastAPI(title="Dock-to-Door", lifespan=lifespan)
@@ -30,7 +32,8 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"adk_enabled": bool(GOOGLE_API_KEY), "model": MODEL, "google_routes": bool(MAPS_KEY)}
+    return {"adk_enabled": bool(GOOGLE_API_KEY), "model": MODEL, "google_routes": bool(MAPS_KEY),
+            "temporal": temporal.enabled(), "clickhouse": ch.enabled()}
 
 
 @app.get("/api/state")
@@ -56,10 +59,18 @@ async def create_incident(vehicle_id: str = Form(...), text: str = Form(""), mod
         (DATA / "uploads" / aud_name).write_bytes(aud)
     iid = db.insert("incidents", {"ts": tools.iso(tools.now()), "vehicle_id": vehicle_id, "text": text, "image_path": img_name,
                                   "audio_path": aud_name, "mode": mode, "status": "running", "trace": "[]"})
-    t = asyncio.create_task(agents.run(iid, mode, img, aud))
-    TASKS.add(t)
-    t.add_done_callback(TASKS.discard)
-    return {"id": iid}
+    started = False
+    if temporal.enabled():   # durable path: workflow runs the pipeline; a crash resumes it, not restarts it
+        try:
+            await temporal.start_incident(iid)
+            started = True
+        except Exception:
+            pass
+    if not started:
+        t = asyncio.create_task(agents.run(iid, mode, img, aud))
+        TASKS.add(t)
+        t.add_done_callback(TASKS.discard)
+    return {"id": iid, "durable": started}
 
 
 @app.get("/api/incidents/{iid}")
@@ -95,13 +106,26 @@ class Rating(BaseModel):
     rating: int
 
 
+def _inc_id(did):
+    d = db.one("SELECT incident_id FROM decisions WHERE id=?", (did,))
+    if not d:
+        raise HTTPException(404)
+    return d["incident_id"]
+
+
 @app.post("/api/decisions/{did}/approve")
-def approve(did: int):
+async def approve(did: int):
+    inc_id = _inc_id(did)
+    if await temporal.signal_decision(inc_id, "approve", [did]):
+        return {"ok": True, "via": "temporal"}
     return tools.approve_decision(did)
 
 
 @app.post("/api/decisions/{did}/override")
-def override(did: int, body: Override):
+async def override(did: int, body: Override):
+    inc_id = _inc_id(did)
+    if await temporal.signal_decision(inc_id, "override", [did, body.vehicle_id, body.reason or "no reason given"]):
+        return {"ok": True, "via": "temporal"}
     return tools.override_decision(did, body.vehicle_id, body.reason or "no reason given")
 
 
@@ -112,12 +136,15 @@ def rate(did: int, body: Rating):
 
 @app.post("/api/decisions/{did}/simulate-outcome")
 def outcome(did: int):
-    return tools.simulate_outcome(did)
+    res = tools.simulate_outcome(did)
+    if res.get("ok"):   # no Temporal: still close the loop — review right after the outcome
+        feedback.review(_inc_id(did))
+    return res
 
 
 @app.post("/api/learn")
 def learn():
-    return tools.learn()
+    return feedback.review(None)
 
 
 @app.post("/api/reset")

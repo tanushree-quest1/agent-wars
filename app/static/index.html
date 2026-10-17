@@ -31,7 +31,7 @@ img.th{max-height:90px;border-radius:6px;margin-top:4px}
 .fleet div{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line)}
 </style></head><body>
 <header><h1>📦➡️🚪 Dock-to-Door <span class="mut">autonomous exception handling</span></h1><span class="sp"></span>
-<span class="badge" id="hAdk"></span><span class="badge" id="hMaps"></span>
+<span class="badge" id="hAdk"></span><span class="badge" id="hMaps"></span><span class="badge" id="hTmp"></span><span class="badge" id="hCh"></span>
 <button onclick="resetAll()">Reset demo</button></header>
 <main>
 <aside id="left">
@@ -194,6 +194,8 @@ async function refresh(){
   drawMap();drawFleet();drawIncidents();drawIncident();drawLearning();drawNotes()}catch(e){console.error(e)}
 }
 api('/api/health').then(h=>{$('hAdk').textContent=h.adk_enabled?`ADK + ${h.model}`:'Offline rules (no GOOGLE_API_KEY)';$('hAdk').className='badge '+(h.adk_enabled?'ok':'warn');
- $('hMaps').textContent=h.google_routes?'Google Routes API':'Haversine ETA (no Maps key)';$('hMaps').className='badge '+(h.google_routes?'ok':'warn')});
+ $('hMaps').textContent=h.google_routes?'Google Routes API':'Haversine ETA (no Maps key)';$('hMaps').className='badge '+(h.google_routes?'ok':'warn');
+ $('hTmp').textContent=h.temporal?'Temporal durable':'No Temporal (direct calls)';$('hTmp').className='badge '+(h.temporal?'ok':'warn');
+ $('hCh').textContent=h.clickhouse?'ClickHouse':'SQLite only';$('hCh').className='badge '+(h.clickhouse?'ok':'warn')});
 refresh();setInterval(refresh,1500);
 </script></body></html>

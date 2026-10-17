@@ -1,0 +1,2 @@
+frontend.enableUpdateWorkflowExecution: true
+system.forceSearchAttributesCacheRefreshOnRead: true

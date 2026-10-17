@@ -1,7 +1,7 @@
 """Simulated fleet: 6 trucks en route Chennai -> Bengaluru, 5 spare vehicles parked at depots."""
 import random
 from datetime import timedelta
-from . import db, geo, tools
+from . import ch, db, geo, tools
 
 WP = [("Chennai Hub", 13.0827, 80.2707), ("Sriperumbudur", 12.9675, 79.9416), ("Vellore", 12.9165, 79.1325),
       ("Krishnagiri", 12.5186, 78.2137), ("Hosur", 12.7409, 77.8253), ("Bengaluru Hub", 12.9716, 77.5946)]
@@ -55,7 +55,10 @@ def seed():
                 temp = 2 + max(0, 30 - m) * 0.28 + random.uniform(-.1, .1) if vid == "TRK-3" else 2.5 + random.uniform(-.3, .3)
             else:
                 temp = 28 + random.uniform(-1, 1)
-            db.insert("telemetry", {"ts": ts, "vehicle_id": vid, "lat": la, "lon": lo, "temp_c": round(temp, 2), "speed": 55 + random.uniform(-6, 6)})
+            sp = 55 + random.uniform(-6, 6)
+            db.insert("telemetry", {"ts": ts, "vehicle_id": vid, "lat": la, "lon": lo, "temp_c": round(temp, 2), "speed": round(sp, 2)})
+            ch.write("telemetry", {"ts": ts, "vehicle_id": vid, "temp_class": cls, "max_temp_c": 8.0 if cls == "reefer" else None,
+                                   "temp_c": round(temp, 2), "lat": la, "lon": lo, "speed": round(sp, 2)})
     for k, (vid, drv, i, cls, cap) in enumerate(SPARES, 1):
         db.insert("vehicles", {"id": vid, "driver": drv, "phone": f"+91 90000 001{k:02d}", "lat": WP[i][1] + .002, "lon": WP[i][2] + .002,
                                "capacity": cap, "temp_class": cls, "status": "available", "depot_id": DEPOTS[i][0]})

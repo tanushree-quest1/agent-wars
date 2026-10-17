@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "ponytail": {
+      "source": "DietrichGebert/ponytail",
+      "sourceType": "github",
+      "skillPath": "skills/ponytail/SKILL.md",
+      "computedHash": "061f887d9e3e735f85db3be3655a8936a00f24d5fb65ac4ab74a968a770fe342"
+    },
+    "temporal-developer": {
+      "source": "temporalio/skill-temporal-developer",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "ccf06dd81430d86951e835ef3e6a10be64824ea072011db7d01f9206d4d83b0f"
+    },
+    "temporal-workflow-design-critic": {
+      "source": "temporalio/skill-temporal-design",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "64cabe0cc683d296bf8c0debd85e68c02a0215fa06e6dddc2a5989768b9f24ab"
+    }
+  }
+}

@@ -12,7 +12,7 @@ if not db.one("SELECT 1 x FROM vehicles"):
 
 mcp = FastMCP("dock-to-door-logistics")
 for fn in (tools.get_shipment_state, tools.get_telemetry_summary, tools.recall_similar_incidents, tools.find_alternate_vehicles,
-           tools.reroute, tools.reserve_dock_slot, tools.notify, tools.log_decision):
+           tools.scan_fleet_anomalies, tools.reroute, tools.reserve_dock_slot, tools.notify, tools.log_decision, tools.write_rule):
     mcp.tool()(fn)
 
 if __name__ == "__main__":

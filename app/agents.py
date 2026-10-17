@@ -23,13 +23,31 @@ class Triage(BaseModel):
     confidence: float
 
 
+class Candidates(BaseModel):
+    candidates: list[dict]   # vehicle_id, predicted_min, sla_ok, cold_ok, ... straight from the scout tool
+
+
+class Assessment(BaseModel):
+    viable: bool
+    key_risk: str
+    note: str = ""
+
+
+class Plan(BaseModel):
+    chosen_vehicle_id: str
+    confidence: float
+    reasoning: str
+
+
 def _trim(x):
     s = json.dumps(x, default=str)
     return json.loads(s) if len(s) < 3500 else s[:3500] + "...[truncated]"
 
 
 def trace(inc_id, author, kind, name, data):
-    row = db.one("SELECT trace FROM incidents WHERE id=?", (inc_id,))
+    row = db.one("SELECT trace FROM incidents WHERE id=?", (inc_id,)) if inc_id else None
+    if row is None:
+        return
     tr = json.loads(row["trace"] or "[]")
     tr.append({"ts": tools.iso(tools.now()), "author": author, "kind": kind, "name": name, "data": _trim(data)})
     db.run("UPDATE incidents SET trace=? WHERE id=?", (json.dumps(tr), inc_id))
@@ -126,10 +144,21 @@ Confidence must be honest: lower it when evidence is missing, vague or contradic
 Learned rules and past cases from the feedback loop (use them):
 {similar_context}"""
 
-PLAN_INSTR = """You are the PLANNING agent. Incident #{incident_id} on vehicle {vehicle_id}. Triage result: {triage}
-Do this in order: call get_shipment_state(vehicle_id), get_telemetry_summary(vehicle_id), recall_similar_incidents(incident_type), find_alternate_vehicles(incident_id).
-Telemetry is ground truth: if the driver reports a cooling fault but telemetry shows none (or vice versa), reduce confidence.
-Choose the candidate that keeps the cold chain intact, then meets the SLA, then is fastest. Candidates are already ranked, but you own the judgment.
+SCOUT_INSTR = """You are the SCOUT agent. Incident #{incident_id} on vehicle {vehicle_id}. Triage result: {triage}
+Do this in order: call get_shipment_state(vehicle_id), get_telemetry_summary(vehicle_id), recall_similar_incidents(triage.incident_type),
+then find_alternate_vehicles(incident_id). Also call scan_fleet_anomalies if a cooling fault is in play.
+Telemetry is ground truth: if the driver reports a cooling fault but telemetry shows none (or vice versa), note it.
+List every candidate (vehicle_id, predicted_min, sla_ok, cold_ok, cost_inr) best first, as your structured output."""
+
+ASSESS_TMPL = """You are a FEASIBILITY assessor. Incident #{inc_id}: vehicle {vid} ({cargo}, {temp_class}) needs a swap.
+Your candidate is {cid} ({pred} min predicted, cold_ok={cold}, sla_ok={sla}, cost INR {cost}).
+Cross-check it: call get_shipment_state({cid}) and get_telemetry_summary({vid}). Verify status, position and capacity make the transfer realistic
+and that the cold chain survives until the handover. Reply with ONLY JSON: viable, key_risk (one line), note."""
+
+JUDGE_INSTR = """You are the PLANNING agent. Incident #{incident_id} on vehicle {vehicle_id}. Triage: {triage}
+Ranked candidates: {candidates}
+Independent feasibility assessments: {assessments}
+Choose the candidate that keeps the cold chain intact, then meets the SLA, then is fastest. Weigh the assessors' risks; telemetry is ground truth.
 Reply with ONLY a JSON object with keys chosen_vehicle_id, confidence (0-1, never above triage confidence), reasoning (2-3 sentences)."""
 
 ACT_INSTR = """You are the ACTION agent. Incident #{incident_id}. Triage: {triage}. Plan: {plan}
@@ -167,7 +196,7 @@ async def _consume(runner, uid, sid, content, inc_id):
 
 
 async def adk(inc_id, image, audio):
-    from google.adk.agents import LlmAgent, SequentialAgent
+    from google.adk.agents import LlmAgent, ParallelAgent, SequentialAgent
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
@@ -189,16 +218,45 @@ async def adk(inc_id, image, audio):
     sess = await svc.get_session(app_name=APP, user_id=uid, session_id=sid)
     save_triage(inc_id, _as_dict(sess.state["triage"]))
 
-    plan_ts, act_ts = _mcp(["get_shipment_state", "get_telemetry_summary", "recall_similar_incidents", "find_alternate_vehicles"]), \
+    read_ts, act_ts = _mcp(["get_shipment_state", "get_telemetry_summary", "recall_similar_incidents", "find_alternate_vehicles", "scan_fleet_anomalies"]), \
         _mcp(["reroute", "reserve_dock_slot", "notify", "log_decision"])
+    async def _state():
+        return (await svc.get_session(app_name=APP, user_id=uid, session_id=sid)).state
     try:
-        planner = LlmAgent(name="planner_agent", model=MODEL, instruction=PLAN_INSTR, tools=[plan_ts], output_key="plan")
+        # 1) scout: read tools -> ranked candidates
+        scout = LlmAgent(name="scout_agent", model=MODEL, instruction=SCOUT_INSTR, tools=[read_ts], output_schema=Candidates, output_key="candidates")
+        await _consume(Runner(agent=scout, app_name=APP, session_service=svc), uid, sid,
+                       types.Content(role="user", parts=[types.Part(text=f"Scout recovery options for incident {inc_id}.")]), inc_id)
+        cands = [c for c in (_as_dict((await _state()).get("candidates") or {}).get("candidates") or []) if isinstance(c, dict) and c.get("vehicle_id")][:3]
+        if not cands:
+            trace(inc_id, "adk_agent", "text", "escalate", "No feasible replacement. Human dispatcher required.")
+            tools.notify(incident_id=inc_id, party="dispatcher", channel="dashboard",
+                         message=f"No feasible vehicle for incident #{inc_id}. Manual action needed.")
+            tools.log_decision(incident_id=inc_id, summary="No feasible replacement found; escalated.")
+            return
+        # 2) fan-out: one feasibility assessor per candidate, in parallel
+        assessors = [LlmAgent(name=f"assess_{c['vehicle_id']}".replace("-", "_"), model=MODEL,
+                              instruction=ASSESS_TMPL.format(inc_id=inc_id, vid=vid, cargo=ship.get("cargo"), temp_class=ship.get("temp_class"),
+                                                             cid=c["vehicle_id"], pred=c.get("predicted_min"), cold=c.get("cold_ok"), sla=c.get("sla_ok"), cost=c.get("cost_inr")),
+                              tools=[read_ts], output_schema=Assessment, output_key=f"assess_{c['vehicle_id']}") for c in cands]
+        assessments = {}
+        try:
+            await _consume(Runner(agent=ParallelAgent(name="feasibility_fanout", sub_agents=assessors), app_name=APP, session_service=svc), uid, sid,
+                           types.Content(role="user", parts=[types.Part(text=f"Assess every candidate for incident {inc_id} now, in parallel.")]), inc_id)
+            st = await _state()
+            assessments = {c["vehicle_id"]: st.get(f"assess_{c['vehicle_id']}") for c in cands if st.get(f"assess_{c['vehicle_id']}")}
+        except Exception as e:
+            trace(inc_id, "system", "text", "fanout_error", f"{type(e).__name__}: {e}; judge proceeds on scout data alone")
+        # 3+4) judge, then act
+        t = _as_dict((await _state()).get("triage") or {})
+        judge = LlmAgent(name="planner_agent", model=MODEL, output_schema=Plan, output_key="plan",
+                         instruction=JUDGE_INSTR.format(incident_id=inc_id, vehicle_id=vid, triage=json.dumps(t, default=str)[:900],
+                                                       candidates=json.dumps(cands, default=str)[:900], assessments=json.dumps(assessments, default=str)[:900]))
         actor = LlmAgent(name="action_agent", model=MODEL, instruction=ACT_INSTR, tools=[act_ts])
-        root = SequentialAgent(name="plan_and_act", sub_agents=[planner, actor])
-        await _consume(Runner(agent=root, app_name=APP, session_service=svc), uid, sid,
+        await _consume(Runner(agent=SequentialAgent(name="plan_and_act", sub_agents=[judge, actor]), app_name=APP, session_service=svc), uid, sid,
                        types.Content(role="user", parts=[types.Part(text=f"Plan and act on incident {inc_id}.")]), inc_id)
     finally:
-        for ts in (plan_ts, act_ts):
+        for ts in (read_ts, act_ts):
             try:
                 await ts.close()
             except Exception:
