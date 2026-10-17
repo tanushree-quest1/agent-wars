@@ -1,0 +1,62 @@
+INFO:     Started server process [83448]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8666 (Press CTRL+C to quit)
+INFO:     127.0.0.1:64277 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64278 - "POST /api/incidents HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64279 - "GET /api/incidents/9 HTTP/1.1" 200 OK
+ClickHouse connect failed (HttpClient.__init__() got an unexpected keyword argument 'server_timezone'); analytics degrade to SQLite
+INFO:     127.0.0.1:64282 - "GET /api/incidents/9 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64283 - "GET /api/incidents/9 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64284 - "POST /api/decisions/9/simulate-outcome HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64285 - "GET /api/state HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64286 - "GET /api/state HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64287 - "POST /api/incidents HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64288 - "GET /api/incidents/10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64290 - "GET /api/incidents/10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64291 - "GET /api/incidents/10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64292 - "POST /api/decisions/10/approve HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64293 - "GET /api/incidents/10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64297 - "GET /api/incidents/10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64298 - "GET /api/incidents/10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64299 - "POST /api/decisions/10/simulate-outcome HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64301 - "GET /api/state HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64302 - "GET /api/state HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64303 - "POST /api/incidents HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64304 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64306 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     Started server process [83515]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8666 (Press CTRL+C to quit)
+INFO:     127.0.0.1:64312 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64313 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64314 - "POST /api/decisions/11/approve HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64315 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64317 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64318 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64321 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64322 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64324 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64325 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64327 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64328 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64332 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64336 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64338 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64339 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64341 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64342 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64344 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64345 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64347 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64349 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64350 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+ClickHouse connect failed (HttpClient.__init__() got an unexpected keyword argument 'server_timezone'); analytics degrade to SQLite
+INFO:     127.0.0.1:64353 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64354 - "GET /api/incidents/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64355 - "POST /api/decisions/11/simulate-outcome HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [83515]

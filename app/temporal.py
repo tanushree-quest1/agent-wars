@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from temporalio.client import Client
 from temporalio.worker import Worker
 from . import temporal_activities as acts
-from .config import NIGHTLY_REVIEW_MIN, TASK_QUEUE, TEMPORAL_URL
+from .config import NIGHTLY_REVIEW_MIN, TASK_QUEUE, TEMPORAL_URL, WORKFLOW_PREFIX
 from .temporal_workflows import IncidentInput, IncidentWorkflow, NightlyReviewWorkflow
 
 _c = None
@@ -17,7 +17,7 @@ def enabled():
 
 
 def wfid(inc_id):
-    return f"incident-{inc_id}"
+    return f"{WORKFLOW_PREFIX}{inc_id}"
 
 
 async def client():

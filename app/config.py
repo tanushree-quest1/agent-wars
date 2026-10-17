@@ -17,6 +17,7 @@ LEARN_MIN_SAMPLES = int(os.getenv("LEARN_MIN_SAMPLES", "2"))
 # Temporal: empty = disabled (REST falls back to direct calls, worker not started)
 TEMPORAL_URL = os.getenv("TEMPORAL_URL", "")
 TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "dock-to-door")
+WORKFLOW_PREFIX = os.getenv("TEMPORAL_WF_PREFIX", "incident-")   # unique per deployment: open workflows can't share ids
 # ClickHouse: empty = disabled (append sink no-ops, reads fall back to SQLite)
 CLICKHOUSE_URL = os.getenv("CLICKHOUSE_URL", "")
 CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "d2d")

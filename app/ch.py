@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from .config import CLICKHOUSE_DB, CLICKHOUSE_PASSWORD, CLICKHOUSE_URL, CLICKHOUSE_USER
 
 log = logging.getLogger("d2d.ch")
-_c, _ready = None, False
+_c, _ready, _down = None, False, False
 
 COLS = {  # insert column order must match the table DDL below
     "telemetry": ("ts", "vehicle_id", "temp_class", "max_temp_c", "temp_c", "lat", "lon", "speed"),
@@ -15,9 +15,9 @@ COLS = {  # insert column order must match the table DDL below
                         "actual_min", "cost_inr", "confidence", "sla_ok", "cold_ok", "rating"),
 }
 DDL = [
-    "CREATE TABLE IF NOT EXISTS telemetry (ts DateTime, vehicle_id String, temp_class String, max_temp_c Nullable(Float64), temp_c Float64, lat Float64, lon Float64, speed Float64) ENGINE MergeTree ORDER BY (vehicle_id, ts)",
-    "CREATE TABLE IF NOT EXISTS tool_log (ts DateTime, tool String, args String, result String) ENGINE MergeTree ORDER BY ts",
-    "CREATE TABLE IF NOT EXISTS decision_events (ts DateTime, decision_id Int64, incident_id Int64, incident_type String, status String, predicted_min Float64, actual_min Nullable(Float64), cost_inr Float64, confidence Float64, sla_ok Int8, cold_ok Int8, rating Nullable(Int8)) ENGINE MergeTree ORDER BY ts",
+    f"CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.telemetry (ts DateTime, vehicle_id String, temp_class String, max_temp_c Nullable(Float64), temp_c Float64, lat Float64, lon Float64, speed Float64) ENGINE MergeTree ORDER BY (vehicle_id, ts)",
+    f"CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.tool_log (ts DateTime, tool String, args String, result String) ENGINE MergeTree ORDER BY ts",
+    f"CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.decision_events (ts DateTime, decision_id Int64, incident_id Int64, incident_type String, status String, predicted_min Float64, actual_min Nullable(Float64), cost_inr Float64, confidence Float64, sla_ok Int8, cold_ok Int8, rating Nullable(Int8)) ENGINE MergeTree ORDER BY ts",
 ]
 
 
@@ -26,12 +26,14 @@ def enabled():
 
 
 def _client():
-    global _c, _ready
-    if _c is None and CLICKHOUSE_URL:
+    global _c, _ready, _down
+    if _c is None and not _down and CLICKHOUSE_URL:
         try:
             import clickhouse_connect
-            _c = clickhouse_connect.get_client(url=CLICKHOUSE_URL, username=CLICKHOUSE_USER, password=CLICKHOUSE_PASSWORD)
+            _c = clickhouse_connect.get_client(dsn=CLICKHOUSE_URL, username=CLICKHOUSE_USER, password=CLICKHOUSE_PASSWORD,
+                                                server_timezone="UTC")   # host-tz containers must not skew naive-UTC timestamps
         except Exception as e:
+            _down = True   # one warning, then silence: every write is a no-op until restart
             log.warning("ClickHouse connect failed (%s); analytics degrade to SQLite", e)
     if _c is not None and not _ready:
         try:
@@ -41,7 +43,7 @@ def _client():
             _ready = True
         except Exception as e:
             log.warning("ClickHouse init failed (%s); analytics degrade to SQLite", e)
-            _c = None
+            _c, _down = None, True
     return _c
 
 

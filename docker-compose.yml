@@ -25,6 +25,7 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
+    environment: {CLICKHOUSE_USER: d2d, CLICKHOUSE_PASSWORD: d2d, CLICKHOUSE_DB: d2d}
     volumes: [clickhouse:/var/lib/clickhouse]
     ports: ["8123:8123"]
 
@@ -34,6 +35,8 @@ services:
     environment: {
       TEMPORAL_URL: temporal:7233,
       CLICKHOUSE_URL: http://clickhouse:8123,
+      CLICKHOUSE_USER: d2d,
+      CLICKHOUSE_PASSWORD: d2d,
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-},
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-},
       NIGHTLY_REVIEW_MIN: ${NIGHTLY_REVIEW_MIN:-1440},

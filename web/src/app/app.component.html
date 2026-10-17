@@ -1,0 +1,199 @@
+<header>
+  <h1>Dock&thinsp;&rarr;&thinsp;Door</h1>
+  <span class="sub">Exception control room</span>
+  <span class="sp"></span>
+  @if (health(); as h) {
+    <span class="badge" [class.ok]="h.adk_enabled" [class.warn]="!h.adk_enabled">{{ h.adk_enabled ? 'ADK · ' + h.model : 'Offline rules · no Gemini key' }}</span>
+    <span class="badge" [class.ok]="h.google_routes" [class.warn]="!h.google_routes">{{ h.google_routes ? 'Google Routes API' : 'Haversine ETA' }}</span>
+    <span class="badge" [class.ok]="h.temporal" [class.warn]="!h.temporal">{{ h.temporal ? 'Temporal durable' : 'Direct calls' }}</span>
+    <span class="badge" [class.ok]="h.clickhouse" [class.warn]="!h.clickhouse">{{ h.clickhouse ? 'ClickHouse' : 'SQLite only' }}</span>
+  }
+  <button (click)="resetAll()">Reset demo</button>
+</header>
+
+<main>
+<aside id="left">
+  <h3>01 · Driver report</h3>
+  <section><div class="card">
+    <select id="veh" [(ngModel)]="vehicleId" (ngModelChange)="loadSpark()">
+      @for (v of reportVehicles; track v.id) {
+        <option [value]="v.id">{{ v.id }} — {{ cargoOf(v.id) }}</option>
+      }
+    </select>
+    <div class="chips row">
+      @for (p of presets; track p.label) {
+        <button (click)="applyPreset(p)">{{ p.label }}</button>
+      }
+    </div>
+    <textarea [(ngModel)]="message" placeholder="Driver message or transcript…"></textarea>
+    <div class="row"><input type="file" accept="image/*" (change)="onImage($event)"></div>
+    @if (imagePreview) { <img class="th" [src]="imagePreview"> }
+    <div class="row">
+      <button (click)="toggleRec()">
+        @if (recOn) { <span>■</span> } @else {
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="vertical-align:-1px"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></svg>
+        }
+        {{ recLabel }}</button>
+      <span class="mut" style="align-self:center;flex:1">{{ recInfo }}</span>
+    </div>
+    <div class="row">
+      <select [(ngModel)]="mode">
+        <option value="auto">Auto (ADK if key set)</option>
+        <option value="offline">Offline rules</option>
+        <option value="adk">Force ADK</option>
+      </select>
+      <button class="pri" (click)="submit()">Send to agent &rarr;</button>
+    </div>
+  </div></section>
+
+  <h3>02 · Reefer temperature</h3>
+  <section><div class="card">
+    @if (sparkShow) {
+      <svg id="spark" width="100%" height="70" viewBox="0 0 300 70" preserveAspectRatio="none">
+        <line x1="0" x2="300" [attr.y1]="sparkLimitY" [attr.y2]="sparkLimitY" stroke="#c03a11" stroke-dasharray="4"/>
+        <polyline fill="none" stroke="#2b4f9e" stroke-width="2" [attr.points]="sparkPoints"/>
+        @if (sparkEnd) { <circle [attr.cx]="sparkEnd[0]" [attr.cy]="sparkEnd[1]" r="2.5" fill="#2b4f9e"/> }
+      </svg>
+    }
+    <div class="mut" style="margin-top:4px">{{ sparkInfo }}</div>
+  </div></section>
+
+  <h3>03 · Fleet</h3>
+  <section><div class="card fleet">
+    @if (state(); as s) {
+      @for (v of s.vehicles; track v.id) {
+        <div><span>{{ v.id }} <span class="mut">{{ v.driver }} · {{ v.temp_class }}</span></span>
+        <span [style.color]="vehicleColor(v.status)">{{ v.status }}</span></div>
+      }
+    }
+  </div></section>
+</aside>
+
+<div id="map"></div>
+
+<aside id="right">
+  <h3>04 · Incidents</h3>
+  <section>
+    <div class="chips">
+      @if (state(); as s) {
+        @for (i of s.incidents; track i.id) {
+          <button (click)="selectIncident(i.id)"
+            [style.border-color]="i.id === cur ? 'var(--ink)' : null"
+            [style.background]="i.id === cur ? 'var(--ink)' : null"
+            [style.color]="i.id === cur ? 'var(--paper)' : null"
+          >#{{ i.id }} {{ i.vehicle_id }} <span [class]="statusClass(i.status)">{{ i.status }}</span></button>
+        }
+        @if (!s.incidents.length) { <span class="mut">none yet — send one from the left</span> }
+      }
+    </div>
+    <div style="margin-top:10px">
+      @if (detail(); as d) {
+        <div class="card"><b>#{{ d.id }}</b> {{ d.vehicle_id }}
+          <span class="pill" [class]="statusClass(d.status)">{{ d.status }}</span>
+          <span class="badge">{{ d.mode }}</span>
+          <div class="mut">{{ d.text }}</div>
+          @if (d.image_path) { <img class="th" [src]="'/uploads/' + d.image_path"> }
+          @if (d.audio_path) { <audio controls [src]="'/uploads/' + d.audio_path" style="width:100%;margin-top:4px"></audio> }
+        </div>
+        @if (d.triage; as t) {
+          <div class="card"><b>Triage</b> <span class="pill">{{ t.incident_type }}</span>
+            <span class="pill">{{ t.severity }}</span> <span class="pill">conf {{ fmt(t.confidence) }}</span>
+            <div class="mut" style="margin-top:4px">{{ t.summary }}</div>
+            <div class="kv"><div>Damage</div><div>{{ t.damage_assessment }}</div>
+              <div>Pallets hit</div><div>{{ t.pallets_affected }}</div>
+              <div>Drivable</div><div>{{ t.vehicle_drivable }}</div>
+              @if (t.transcript && t.transcript !== d.text) { <div>Transcript</div><div>{{ t.transcript }}</div> }
+            </div>
+          </div>
+        }
+        @for (dec of d.decisions; track dec.id) {
+          <div class="card">
+            <div><b>{{ dec.mode === 'detour' ? 'Detour' : 'Swap → ' + dec.vehicle_id }}</b>
+              <span class="pill" [class]="statusClass(dec.status)">{{ dec.status }}</span>
+              @if (dec.override_of) { <span class="mut">(human override of {{ dec.override_of }})</span> }
+            </div>
+            <div class="kv">
+              <div>Meet point</div><div>{{ dec.meet_label }}</div>
+              <div>Predicted</div><div>{{ dec.predicted_min }} min → ETA {{ dec.eta_local }}</div>
+              <div>SLA left</div><div [class]="dec.sla_ok ? 'ok' : 'bad'">{{ dec.sla_remaining_min }} min · {{ dec.sla_ok ? 'on track' : 'at risk' }}</div>
+              <div>Cold chain</div><div [class]="dec.cold_ok ? 'ok' : 'bad'">{{ dec.cold_ok ? 'protected' : 'breach before transfer' }}</div>
+              <div>Cost</div><div>₹{{ dec.cost_inr?.toFixed(0) }}</div>
+              <div>Confidence</div><div>{{ fmt(dec.confidence) }}</div>
+              @if (dec.actual_min != null) {
+                <div>Actual</div><div [class]="dec.sla_held ? 'ok' : 'bad'">{{ dec.actual_min }} min ({{ dec.sla_held ? 'SLA held' : 'SLA missed' }})</div>
+              }
+            </div>
+            @if (dec.escalation) { <div class="warn" style="margin-top:6px">Escalated: {{ dec.escalation }}</div> }
+            <div class="mut" style="margin-top:6px;font-size:12px">{{ dec.reasoning }}</div>
+            <div class="row">
+              @if (dec.status === 'pending_approval') { <button class="pri" (click)="act('approve', dec.id)">Approve</button> }
+              @if (dec.status === 'pending_approval' || dec.status === 'executed') { <button (click)="openOverride(dec.id)">Override</button> }
+              @if (dec.status === 'executed' && dec.actual_min == null) { <button (click)="act('simulate-outcome', dec.id)">Simulate outcome</button> }
+              <button (click)="rate(dec.id, 1)" title="good call" [style.border-color]="dec.rating===1 ? 'var(--ok)' : null" [style.color]="dec.rating===1 ? 'var(--ok)' : null">+1</button>
+              <button (click)="rate(dec.id, -1)" title="bad call" [style.border-color]="dec.rating===-1 ? 'var(--bad)' : null" [style.color]="dec.rating===-1 ? 'var(--bad)' : null">−1</button>
+            </div>
+          </div>
+        }
+        @if (ovr.open && hasDecision(d, ovr.did)) {
+          <div class="card"><b>Override · choose vehicle</b>
+            <select [(ngModel)]="ovrVehicle" style="margin-top:6px">
+              @for (c of ovr.cands; track c.vehicle_id) {
+                <option [value]="c.vehicle_id">{{ c.vehicle_id }} — {{ c.predicted_min }} min, ₹{{ c.cost_inr }}, {{ c.cold_ok ? 'cold ok' : 'cold breach' }}</option>
+              }
+            </select>
+            <input [(ngModel)]="ovrReason" placeholder="Reason (becomes a labelled training example)" style="margin-top:6px">
+            <div class="row"><button class="pri" (click)="doOverride()">Apply override</button><button (click)="cancelOverride()">Cancel</button></div>
+          </div>
+        }
+        @if (d.summary) { <div class="card"><b>Audit summary</b><div class="mut">{{ d.summary }}</div></div> }
+        <h3 style="border:0;background:none;padding:9px 0 4px">Agent timeline</h3>
+        <div class="tl">
+          @for (e of d.trace; track $index) {
+            <div class="e" [class.t]="e.kind==='tool_call'" [class.r]="e.kind==='tool_result'" [class.x]="e.name==='adk_error' || e.name==='error'">
+              <div class="who">{{ e.author }} · {{ e.name }}</div>
+              @if (e.kind === 'text' && typeof e.data === 'string') {
+                <div>{{ e.data }}</div>
+              } @else {
+                <details><summary>{{ e.kind === 'tool_call' ? 'call' : 'result' }} · <b>{{ e.name }}</b> {{ e.kind === 'tool_call' ? json(e.data, 90) : '' }}</summary>
+                  <pre>{{ json(e.data) }}</pre></details>
+              }
+            </div>
+          }
+          @if (!d.trace.length) { <span class="mut">waiting…</span> }
+        </div>
+      }
+    </div>
+  </section>
+
+  <h3>05 · Feedback loop</h3>
+  <section>
+    @if (state(); as s) {
+      <div class="card">
+        <div class="kv">
+          <div>Resolved cases</div><div>{{ s.stats.resolved }}</div>
+          <div>Avg ETA error</div><div>{{ s.stats.mape_pct == null ? '–' : s.stats.mape_pct + '%' }}</div>
+          <div>SLA held</div><div>{{ s.stats.sla_held_pct == null ? '–' : s.stats.sla_held_pct + '%' }}</div>
+          <div>Human overrides</div><div>{{ s.stats.overrides }}</div>
+        </div>
+        @for (r of s.rules; track r.incident_type) { <div class="rule">{{ r.text }}</div> }
+        <div class="row"><button (click)="learnNow()">Run learning job</button></div>
+        <div class="mut" style="font-size:11px">Resolve two or more incidents of a type (“Simulate outcome”), then run learning. The next plan of that type gets an ETA buffer.</div>
+      </div>
+    }
+  </section>
+
+  <h3>06 · Outbound messages (simulated)</h3>
+  <section>
+    @if (state(); as s) {
+      @for (n of s.notifications; track n.id) {
+        <div class="card"><span class="pill">{{ n.party }}</span> <span class="mut">#{{ n.incident_id }} · {{ n.channel }}</span>
+          <div style="margin-top:3px">{{ n.message }}</div>
+        </div>
+      }
+      @if (!s.notifications.length) { <span class="mut">none</span> }
+    }
+  </section>
+</aside>
+</main>
+
+<footer>DOCK-TO-DOOR · AGENTIC FREIGHT RECOVERY · CHENNAI &harr; BENGALURU CORRIDOR</footer>

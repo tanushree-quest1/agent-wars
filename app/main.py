@@ -2,7 +2,6 @@ import asyncio, json, uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from . import agents, ch, db, feedback, seed, temporal, tools
@@ -23,11 +22,6 @@ async def lifespan(_):
 app = FastAPI(title="Dock-to-Door", lifespan=lifespan)
 app.mount("/uploads", StaticFiles(directory=DATA / "uploads"), name="uploads")
 STATIC = Path(__file__).parent / "static"
-
-
-@app.get("/")
-def index():
-    return FileResponse(STATIC / "index.html")
 
 
 @app.get("/api/health")
@@ -135,7 +129,9 @@ def rate(did: int, body: Rating):
 
 
 @app.post("/api/decisions/{did}/simulate-outcome")
-def outcome(did: int):
+async def outcome(did: int):
+    if await temporal.signal_decision(_inc_id(did), "outcome", [did]):
+        return {"ok": True, "via": "temporal"}   # workflow runs the review activity after the outcome
     res = tools.simulate_outcome(did)
     if res.get("ok"):   # no Temporal: still close the loop — review right after the outcome
         feedback.review(_inc_id(did))
@@ -151,3 +147,6 @@ def learn():
 def reset():
     seed.seed()
     return {"ok": True}
+
+
+app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")   # API routes win; everything else serves the built Angular app
