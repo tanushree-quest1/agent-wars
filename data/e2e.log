@@ -39,3 +39,20 @@ INFO:     127.0.0.1:50275 - "GET /api/incidents/27 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:50276 - "GET /api/incidents/27 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:50277 - "GET /api/incidents/27 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:50278 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50279 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50280 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50281 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50282 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50283 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50284 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50285 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50286 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50287 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50288 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50291 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50292 - "GET /api/incidents/27 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50293 - "POST /api/decisions/27/simulate-outcome HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [4507]
