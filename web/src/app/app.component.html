@@ -1,199 +1,637 @@
-<header>
-  <h1>Dock&thinsp;&rarr;&thinsp;Door</h1>
-  <span class="sub">Exception control room</span>
-  <span class="sp"></span>
-  @if (health(); as h) {
-    <span class="badge" [class.ok]="h.adk_enabled" [class.warn]="!h.adk_enabled">{{ h.adk_enabled ? 'ADK · ' + h.model : 'Offline rules · no Gemini key' }}</span>
-    <span class="badge" [class.ok]="h.google_routes" [class.warn]="!h.google_routes">{{ h.google_routes ? 'Google Routes API' : 'Haversine ETA' }}</span>
-    <span class="badge" [class.ok]="h.temporal" [class.warn]="!h.temporal">{{ h.temporal ? 'Temporal durable' : 'Direct calls' }}</span>
-    <span class="badge" [class.ok]="h.clickhouse" [class.warn]="!h.clickhouse">{{ h.clickhouse ? 'ClickHouse' : 'SQLite only' }}</span>
+<!-- TOP OPERATIONAL MASTHEAD -->
+<header class="masthead">
+  <div class="masthead-brand">
+    <span class="brand-mark">D2D</span>
+    <div class="brand-title-wrap">
+      <h1 class="brand-title">Dock&thinsp;&rarr;&thinsp;Door</h1>
+      <span class="brand-sub">NH-48 Corridor · Exception Control Desk</span>
+    </div>
+  </div>
+
+  @if (state(); as s) {
+    <div class="masthead-kpis">
+      <div class="kpi-cell">
+        <span class="kpi-label">In Transit</span>
+        <span class="kpi-val">{{ transitCount }}&thinsp;/&thinsp;{{ s.vehicles.length }}</span>
+      </div>
+      <div class="kpi-cell">
+        <span class="kpi-label">Spare Units</span>
+        <span class="kpi-val ok">{{ spareCount }}</span>
+      </div>
+      <div class="kpi-cell">
+        <span class="kpi-label">Open Cases</span>
+        <span class="kpi-val" [class.accent]="openIncidentCount > 0">{{ openIncidentCount }}</span>
+      </div>
+      <div class="kpi-cell">
+        <span class="kpi-label">SLA Held</span>
+        <span class="kpi-val">{{ s.stats.sla_held_pct == null ? 'n/a' : s.stats.sla_held_pct + '%' }}</span>
+      </div>
+    </div>
   }
-  <button (click)="resetAll()">Reset demo</button>
+
+  <div class="masthead-sys">
+    @if (health(); as h) {
+      <span class="sys-pill" [class.ok]="h.adk_enabled" [class.warn]="!h.adk_enabled">
+        <span class="sys-dot"></span>
+        {{ h.adk_enabled ? 'ADK · ' + h.model : 'Offline Rules · No Gemini Key' }}
+      </span>
+      <span class="sys-pill" [class.ok]="h.google_routes" [class.warn]="!h.google_routes">
+        <span class="sys-dot"></span>
+        {{ h.google_routes ? 'Google Routes API' : 'Haversine ETA' }}
+      </span>
+      <span class="sys-pill" [class.ok]="h.temporal" [class.warn]="!h.temporal">
+        <span class="sys-dot"></span>
+        {{ h.temporal ? 'Temporal Durable' : 'Direct Execution' }}
+      </span>
+      <span class="sys-pill" [class.ok]="h.clickhouse" [class.warn]="!h.clickhouse">
+        <span class="sys-dot"></span>
+        {{ h.clickhouse ? 'ClickHouse OLAP' : 'SQLite WAL' }}
+      </span>
+    }
+    <span class="clock-readout">{{ clockStr }}</span>
+    <button class="btn-masthead" (click)="resetAll()">Reset Ledger</button>
+  </div>
 </header>
 
-<main>
-<aside id="left">
-  <h3>01 · Driver report</h3>
-  <section><div class="card">
-    <select id="veh" [(ngModel)]="vehicleId" (ngModelChange)="loadSpark()">
-      @for (v of reportVehicles; track v.id) {
-        <option [value]="v.id">{{ v.id }} — {{ cargoOf(v.id) }}</option>
-      }
-    </select>
-    <div class="chips row">
-      @for (p of presets; track p.label) {
-        <button (click)="applyPreset(p)">{{ p.label }}</button>
-      }
-    </div>
-    <textarea [(ngModel)]="message" placeholder="Driver message or transcript…"></textarea>
-    <div class="row"><input type="file" accept="image/*" (change)="onImage($event)"></div>
-    @if (imagePreview) { <img class="th" [src]="imagePreview"> }
-    <div class="row">
-      <button (click)="toggleRec()">
-        @if (recOn) { <span>■</span> } @else {
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="vertical-align:-1px"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></svg>
-        }
-        {{ recLabel }}</button>
-      <span class="mut" style="align-self:center;flex:1">{{ recInfo }}</span>
-    </div>
-    <div class="row">
-      <select [(ngModel)]="mode">
-        <option value="auto">Auto (ADK if key set)</option>
-        <option value="offline">Offline rules</option>
-        <option value="adk">Force ADK</option>
-      </select>
-      <button class="pri" (click)="submit()">Send to agent &rarr;</button>
-    </div>
-  </div></section>
+<!-- MAIN 3-COLUMN WORKSPACE -->
+<main class="workspace">
 
-  <h3>02 · Reefer temperature</h3>
-  <section><div class="card">
-    @if (sparkShow) {
-      <svg id="spark" width="100%" height="70" viewBox="0 0 300 70" preserveAspectRatio="none">
-        <line x1="0" x2="300" [attr.y1]="sparkLimitY" [attr.y2]="sparkLimitY" stroke="#c03a11" stroke-dasharray="4"/>
-        <polyline fill="none" stroke="#2b4f9e" stroke-width="2" [attr.points]="sparkPoints"/>
-        @if (sparkEnd) { <circle [attr.cx]="sparkEnd[0]" [attr.cy]="sparkEnd[1]" r="2.5" fill="#2b4f9e"/> }
-      </svg>
-    }
-    <div class="mut" style="margin-top:4px">{{ sparkInfo }}</div>
-  </div></section>
-
-  <h3>03 · Fleet</h3>
-  <section><div class="card fleet">
-    @if (state(); as s) {
-      @for (v of s.vehicles; track v.id) {
-        <div><span>{{ v.id }} <span class="mut">{{ v.driver }} · {{ v.temp_class }}</span></span>
-        <span [style.color]="vehicleColor(v.status)">{{ v.status }}</span></div>
-      }
-    }
-  </div></section>
-</aside>
-
-<div id="map"></div>
-
-<aside id="right">
-  <h3>04 · Incidents</h3>
-  <section>
-    <div class="chips">
-      @if (state(); as s) {
-        @for (i of s.incidents; track i.id) {
-          <button (click)="selectIncident(i.id)"
-            [style.border-color]="i.id === cur ? 'var(--ink)' : null"
-            [style.background]="i.id === cur ? 'var(--ink)' : null"
-            [style.color]="i.id === cur ? 'var(--paper)' : null"
-          >#{{ i.id }} {{ i.vehicle_id }} <span [class]="statusClass(i.status)">{{ i.status }}</span></button>
-        }
-        @if (!s.incidents.length) { <span class="mut">none yet — send one from the left</span> }
-      }
+  <!-- =========================================================
+       LEFT PANE: FIELD INTAKE, TELEMETRY & FLEET ROSTER
+       ========================================================= -->
+  <aside class="col-pane col-left">
+    <div class="sec-head">
+      <span><span class="sec-index">01</span>Field Exception Intake</span>
+      <span class="sec-meta">Driver Dispatch Ticket</span>
     </div>
-    <div style="margin-top:10px">
-      @if (detail(); as d) {
-        <div class="card"><b>#{{ d.id }}</b> {{ d.vehicle_id }}
-          <span class="pill" [class]="statusClass(d.status)">{{ d.status }}</span>
-          <span class="badge">{{ d.mode }}</span>
-          <div class="mut">{{ d.text }}</div>
-          @if (d.image_path) { <img class="th" [src]="'/uploads/' + d.image_path"> }
-          @if (d.audio_path) { <audio controls [src]="'/uploads/' + d.audio_path" style="width:100%;margin-top:4px"></audio> }
+    <section class="sec-body">
+      <div class="ledger-card">
+        <div class="field-label">
+          <span>Active Transit Vehicle</span>
+          @if (shipmentOf(vehicleId); as sh) {
+            <span>{{ sh.id }} · {{ sh.pallets }} plt · {{ sh.priority }}</span>
+          }
         </div>
-        @if (d.triage; as t) {
-          <div class="card"><b>Triage</b> <span class="pill">{{ t.incident_type }}</span>
-            <span class="pill">{{ t.severity }}</span> <span class="pill">conf {{ fmt(t.confidence) }}</span>
-            <div class="mut" style="margin-top:4px">{{ t.summary }}</div>
-            <div class="kv"><div>Damage</div><div>{{ t.damage_assessment }}</div>
-              <div>Pallets hit</div><div>{{ t.pallets_affected }}</div>
-              <div>Drivable</div><div>{{ t.vehicle_drivable }}</div>
-              @if (t.transcript && t.transcript !== d.text) { <div>Transcript</div><div>{{ t.transcript }}</div> }
-            </div>
+        <select id="veh" [(ngModel)]="vehicleId" (ngModelChange)="loadSpark()">
+          @for (v of reportVehicles; track v.id) {
+            <option [value]="v.id">{{ v.id }} · {{ v.driver }} ({{ cargoOf(v.id) }})</option>
+          }
+        </select>
+
+        <div class="field-label" style="margin-top:10px">
+          <span>Field Scenario Presets</span>
+          <span>Click to populate</span>
+        </div>
+        <div class="preset-grid">
+          @for (p of presets; track p.label) {
+            <button type="button" class="preset-btn" (click)="applyPreset(p)">
+              <span class="preset-veh">{{ p.tag }}</span>
+              <span class="preset-title">{{ p.label }}</span>
+            </button>
+          }
+        </div>
+
+        <div class="field-label">
+          <span>Driver Report / Voice Transcript</span>
+          <span>Tamil + English supported</span>
+        </div>
+        <textarea [(ngModel)]="message" placeholder="Enter driver report, mechanical fault, or highway obstruction details..."></textarea>
+
+        <div class="attach-grid">
+          <label class="file-drop">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="5" width="18" height="14" rx="1"/>
+              <circle cx="8.5" cy="10.5" r="1.5"/>
+              <path d="M21 15l-5-5L5 19"/>
+            </svg>
+            <span>{{ imageFile ? imageFile.name : 'Attach cargo photo' }}</span>
+            <input type="file" accept="image/*" (change)="onImage($event)">
+          </label>
+
+          <button type="button" class="rec-btn" [class.recording]="recOn" (click)="toggleRec()">
+            @if (recOn) {
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14"/></svg>
+            } @else {
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <rect x="9" y="2" width="6" height="12" rx="3"/>
+                <path d="M5 10a7 7 0 0 0 14 0M12 17v5"/>
+              </svg>
+            }
+            {{ recLabel }}
+          </button>
+        </div>
+
+        @if (imagePreview || recInfo) {
+          <div class="media-preview-strip">
+            @if (imagePreview) {
+              <img class="th" [src]="imagePreview" alt="Cargo evidence preview">
+              <button type="button" (click)="clearImage()">Remove photo</button>
+            }
+            @if (recInfo) {
+              <span class="ok">{{ recInfo }}</span>
+            }
           </div>
         }
-        @for (dec of d.decisions; track dec.id) {
-          <div class="card">
-            <div><b>{{ dec.mode === 'detour' ? 'Detour' : 'Swap → ' + dec.vehicle_id }}</b>
-              <span class="pill" [class]="statusClass(dec.status)">{{ dec.status }}</span>
-              @if (dec.override_of) { <span class="mut">(human override of {{ dec.override_of }})</span> }
-            </div>
-            <div class="kv">
-              <div>Meet point</div><div>{{ dec.meet_label }}</div>
-              <div>Predicted</div><div>{{ dec.predicted_min }} min → ETA {{ dec.eta_local }}</div>
-              <div>SLA left</div><div [class]="dec.sla_ok ? 'ok' : 'bad'">{{ dec.sla_remaining_min }} min · {{ dec.sla_ok ? 'on track' : 'at risk' }}</div>
-              <div>Cold chain</div><div [class]="dec.cold_ok ? 'ok' : 'bad'">{{ dec.cold_ok ? 'protected' : 'breach before transfer' }}</div>
-              <div>Cost</div><div>₹{{ dec.cost_inr?.toFixed(0) }}</div>
-              <div>Confidence</div><div>{{ fmt(dec.confidence) }}</div>
-              @if (dec.actual_min != null) {
-                <div>Actual</div><div [class]="dec.sla_held ? 'ok' : 'bad'">{{ dec.actual_min }} min ({{ dec.sla_held ? 'SLA held' : 'SLA missed' }})</div>
+
+        <div class="dispatch-bar">
+          <select [(ngModel)]="mode" aria-label="Execution pipeline mode">
+            <option value="auto">Pipeline: Auto (ADK if key set)</option>
+            <option value="offline">Pipeline: Deterministic Offline</option>
+            <option value="adk">Pipeline: Force Gemini ADK</option>
+          </select>
+          <button type="button" class="pri" [disabled]="submitting" (click)="submit()">
+            {{ submitting ? 'Dispatching...' : 'Dispatch to Agents' }} &rarr;
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02: REEFER TELEMETRY -->
+    <div class="sec-head">
+      <span><span class="sec-index">02</span>Cold-Chain Telemetry</span>
+      <span class="sec-meta">{{ vehicleId || 'No unit' }}</span>
+    </div>
+    <section class="sec-body">
+      <div class="ledger-card">
+        <div class="telemetry-head">
+          <div>
+            <div class="field-label" style="margin-bottom:2px">Box Sensor Readout</div>
+            <span class="temp-big" [class.bad]="sparkBreach" [class.ok]="sparkShow && !sparkBreach">
+              {{ sparkLatest || 'n/a' }}
+            </span>
+          </div>
+          <div style="text-align:right">
+            @if (sparkShow) {
+              <span class="pill" [class.bad]="sparkBreach" [class.ok]="!sparkBreach">
+                {{ sparkBreach ? 'Excursion > 8.0°C' : '2.0°C to 8.0°C Nominal' }}
+              </span>
+              <div class="mut" style="font-family:var(--font-mono);font-size:10px;margin-top:3px">
+                Drift: {{ sparkDrift }}
+              </div>
+            } @else {
+              <span class="pill">Dry Ambient Van</span>
+            }
+          </div>
+        </div>
+
+        @if (sparkShow) {
+          <div class="spark-frame">
+            <svg id="spark" viewBox="0 0 300 76" preserveAspectRatio="none">
+              <line x1="0" x2="300" y1="18" y2="18" stroke="#ebe5d8" stroke-width="1"/>
+              <line x1="0" x2="300" y1="38" y2="38" stroke="#ebe5d8" stroke-width="1"/>
+              <line x1="0" x2="300" y1="58" y2="58" stroke="#ebe5d8" stroke-width="1"/>
+              <polygon [attr.points]="sparkAreaPoints" fill="rgba(29, 68, 143, 0.08)"/>
+              <line x1="0" x2="300" [attr.y1]="sparkLimitY" [attr.y2]="sparkLimitY" stroke="#c43210" stroke-width="1.3" stroke-dasharray="4 3"/>
+              <polyline fill="none" [attr.stroke]="sparkBreach ? '#c43210' : '#1d448f'" stroke-width="2.2" [attr.points]="sparkPoints"/>
+              @if (sparkEnd) {
+                <circle [attr.cx]="sparkEnd[0]" [attr.cy]="sparkEnd[1]" r="3.2" [attr.fill]="sparkBreach ? '#c43210' : '#1d448f'"/>
               }
-            </div>
-            @if (dec.escalation) { <div class="warn" style="margin-top:6px">Escalated: {{ dec.escalation }}</div> }
-            <div class="mut" style="margin-top:6px;font-size:12px">{{ dec.reasoning }}</div>
-            <div class="row">
-              @if (dec.status === 'pending_approval') { <button class="pri" (click)="act('approve', dec.id)">Approve</button> }
-              @if (dec.status === 'pending_approval' || dec.status === 'executed') { <button (click)="openOverride(dec.id)">Override</button> }
-              @if (dec.status === 'executed' && dec.actual_min == null) { <button (click)="act('simulate-outcome', dec.id)">Simulate outcome</button> }
-              <button (click)="rate(dec.id, 1)" title="good call" [style.border-color]="dec.rating===1 ? 'var(--ok)' : null" [style.color]="dec.rating===1 ? 'var(--ok)' : null">+1</button>
-              <button (click)="rate(dec.id, -1)" title="bad call" [style.border-color]="dec.rating===-1 ? 'var(--bad)' : null" [style.color]="dec.rating===-1 ? 'var(--bad)' : null">−1</button>
-            </div>
+            </svg>
           </div>
         }
-        @if (ovr.open && hasDecision(d, ovr.did)) {
-          <div class="card"><b>Override · choose vehicle</b>
-            <select [(ngModel)]="ovrVehicle" style="margin-top:6px">
-              @for (c of ovr.cands; track c.vehicle_id) {
-                <option [value]="c.vehicle_id">{{ c.vehicle_id }} — {{ c.predicted_min }} min, ₹{{ c.cost_inr }}, {{ c.cold_ok ? 'cold ok' : 'cold breach' }}</option>
-              }
-            </select>
-            <input [(ngModel)]="ovrReason" placeholder="Reason (becomes a labelled training example)" style="margin-top:6px">
-            <div class="row"><button class="pri" (click)="doOverride()">Apply override</button><button (click)="cancelOverride()">Cancel</button></div>
-          </div>
-        }
-        @if (d.summary) { <div class="card"><b>Audit summary</b><div class="mut">{{ d.summary }}</div></div> }
-        <h3 style="border:0;background:none;padding:9px 0 4px">Agent timeline</h3>
-        <div class="tl">
-          @for (e of d.trace; track $index) {
-            <div class="e" [class.t]="e.kind==='tool_call'" [class.r]="e.kind==='tool_result'" [class.x]="e.name==='adk_error' || e.name==='error'">
-              <div class="who">{{ e.author }} · {{ e.name }}</div>
-              @if (e.kind === 'text' && typeof e.data === 'string') {
-                <div>{{ e.data }}</div>
-              } @else {
-                <details><summary>{{ e.kind === 'tool_call' ? 'call' : 'result' }} · <b>{{ e.name }}</b> {{ e.kind === 'tool_call' ? json(e.data, 90) : '' }}</summary>
-                  <pre>{{ json(e.data) }}</pre></details>
-              }
+        <div class="spark-caption">
+          <span>{{ sparkInfo }}</span>
+          @if (sparkShow) { <span> ceiling: 8.0°C</span> }
+        </div>
+      </div>
+    </section>
+
+    <!-- 03: FLEET & SPARE ROSTER -->
+    <div class="sec-head">
+      <span><span class="sec-index">03</span>Fleet &amp; Spare Roster</span>
+      @if (state(); as s) {
+        <span class="sec-meta">{{ s.vehicles.length }} units</span>
+      }
+    </div>
+    <section class="sec-body">
+      <div class="ledger-card">
+        <div class="roster-filter-bar">
+          <button type="button" class="filter-tab" [class.active]="fleetFilter==='all'" (click)="fleetFilter='all'">All</button>
+          <button type="button" class="filter-tab" [class.active]="fleetFilter==='transit'" (click)="fleetFilter='transit'">Transit</button>
+          <button type="button" class="filter-tab" [class.active]="fleetFilter==='available'" (click)="fleetFilter='available'">Spares</button>
+          <button type="button" class="filter-tab" [class.active]="fleetFilter==='reefer'" (click)="fleetFilter='reefer'">Reefer</button>
+        </div>
+
+        <table class="fleet-table">
+          <thead>
+            <tr>
+              <th>Unit</th>
+              <th>Driver</th>
+              <th>Class / Cap</th>
+              <th style="text-align:right">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (v of filteredVehicles; track v.id) {
+              <tr class="fleet-row" [class.selected-veh]="v.id === vehicleId" (click)="focusVehicle(v)">
+                <td><b>{{ v.id }}</b></td>
+                <td>{{ v.driver }}</td>
+                <td class="mut">{{ v.temp_class }} · {{ v.capacity }}p</td>
+                <td style="text-align:right">
+                  <span class="pill" [class]="statusClass(v.status)">{{ v.status }}</span>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </aside>
+
+  <!-- =========================================================
+       CENTER PANE: GEOSPATIAL CORRIDOR, WAYPOINTS & MANIFEST
+       ========================================================= -->
+  <section class="col-center">
+    <div class="map-toolbar">
+      <div class="map-legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:#1d448f"></span>In Transit</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#196134"></span>Available Spare</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#8f5400"></span>Dispatched</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#c43210"></span>Out of Service</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#f0a824"></span>Handover Point</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#faf8f2"></span>Relay Depot</span>
+      </div>
+      <button type="button" (click)="fitCorridor()">Fit NH-48 Corridor</button>
+    </div>
+
+    <div class="map-stage">
+      <div id="map"></div>
+    </div>
+
+    <!-- LINEAR CORRIDOR RELAY DEPOT STRIP -->
+    @if (state(); as s) {
+      <div class="corridor-strip">
+        <div class="corridor-title-row">
+          <span>NH-48 Relay Depots &amp; Staging Hubs (East &rarr; West · 348 km)</span>
+          <span>Click any truck in roster to locate</span>
+        </div>
+        <div class="corridor-nodes">
+          @for (dep of s.depots; track dep.id) {
+            <div class="depot-node">
+              <div class="depot-node-name">{{ dep.name }}</div>
+              <div class="depot-node-meta">{{ dep.id }} · {{ dep.dock_slots }} docks</div>
+              <div class="depot-node-meta" style="color:var(--ok)">{{ sparesAtDepot(dep.id) }}</div>
             </div>
           }
-          @if (!d.trace.length) { <span class="mut">waiting…</span> }
         </div>
-      }
-    </div>
-  </section>
+      </div>
 
-  <h3>05 · Feedback loop</h3>
-  <section>
-    @if (state(); as s) {
-      <div class="card">
-        <div class="kv">
-          <div>Resolved cases</div><div>{{ s.stats.resolved }}</div>
-          <div>Avg ETA error</div><div>{{ s.stats.mape_pct == null ? '–' : s.stats.mape_pct + '%' }}</div>
-          <div>SLA held</div><div>{{ s.stats.sla_held_pct == null ? '–' : s.stats.sla_held_pct + '%' }}</div>
-          <div>Human overrides</div><div>{{ s.stats.overrides }}</div>
-        </div>
-        @for (r of s.rules; track r.incident_type) { <div class="rule">{{ r.text }}</div> }
-        <div class="row"><button (click)="learnNow()">Run learning job</button></div>
-        <div class="mut" style="font-size:11px">Resolve two or more incidents of a type (“Simulate outcome”), then run learning. The next plan of that type gets an ETA buffer.</div>
+      <!-- ACTIVE SHIPMENT MANIFEST LEDGER -->
+      <div class="manifest-pane">
+        <table class="manifest-table">
+          <thead>
+            <tr>
+              <th>Shipment</th>
+              <th>Assigned Unit</th>
+              <th>Consignee &amp; Destination</th>
+              <th>Cargo &amp; Spec</th>
+              <th>Load</th>
+              <th>Priority</th>
+              <th>State</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (sh of s.shipments; track sh.id) {
+              <tr (click)="vehicleId = sh.vehicle_id; loadSpark()" style="cursor:pointer">
+                <td><b>{{ sh.id }}</b></td>
+                <td><b>{{ sh.vehicle_id }}</b></td>
+                <td>{{ sh.dest_name }}</td>
+                <td>{{ sh.cargo }} <span class="mut">({{ sh.temp_class }})</span></td>
+                <td>{{ sh.pallets }} plt</td>
+                <td>
+                  <span class="pill" [class.bad]="sh.priority==='critical'" [class.warn]="sh.priority==='priority'">
+                    {{ sh.priority }}
+                  </span>
+                </td>
+                <td>
+                  <span class="pill" [class]="statusClass(sh.status)">{{ sh.status }}</span>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
       </div>
     }
   </section>
 
-  <h3>06 · Outbound messages (simulated)</h3>
-  <section>
-    @if (state(); as s) {
-      @for (n of s.notifications; track n.id) {
-        <div class="card"><span class="pill">{{ n.party }}</span> <span class="mut">#{{ n.incident_id }} · {{ n.channel }}</span>
-          <div style="margin-top:3px">{{ n.message }}</div>
+  <!-- =========================================================
+       RIGHT PANE: INCIDENT DOSSIER, MULTI-AGENT TRACE & LEARNING
+       ========================================================= -->
+  <aside class="col-pane col-right">
+    <div class="sec-head">
+      <span><span class="sec-index">04</span>Exception Dossier &amp; Workbench</span>
+      @if (state(); as s) {
+        <span class="sec-meta">{{ s.incidents.length }} logged</span>
+      }
+    </div>
+    <section class="sec-body">
+      @if (state(); as s) {
+        <div class="incident-tabs">
+          @for (i of s.incidents; track i.id) {
+            <button type="button" class="inc-tab" [class.selected]="i.id === cur" (click)="selectIncident(i.id)">
+              #{{ i.id }} · {{ i.vehicle_id }} · {{ i.status }}
+            </button>
+          }
+          @if (!s.incidents.length) {
+            <div class="ledger-card" style="width:100%;color:var(--mut);font-family:var(--font-mono);font-size:11.5px">
+              No active exceptions on the NH-48 corridor. Select a preset in Section 01 and dispatch to agents.
+            </div>
+          }
         </div>
       }
-      @if (!s.notifications.length) { <span class="mut">none</span> }
-    }
-  </section>
-</aside>
+
+      @if (detail(); as d) {
+        <!-- INCIDENT HEADER CARD -->
+        <div class="ledger-card active-card">
+          <div class="dossier-header">
+            <div>
+              <div class="dossier-id">Exception #{{ d.id }} · Vehicle {{ d.vehicle_id }}</div>
+              <div class="mut" style="font-family:var(--font-mono);font-size:10.5px;margin-top:2px">
+                Logged {{ d.ts }} · Pipeline: {{ d.mode }}
+              </div>
+            </div>
+            <span class="pill" [class]="statusClass(d.status)">{{ d.status }}</span>
+          </div>
+
+          <!-- PIPELINE STAGE PROGRESS -->
+          <div class="stage-strip">
+            @for (st of pipelineStages(d); track st.label) {
+              <div class="stage-step" [class.done]="st.state === 'done'" [class.active]="st.state === 'active'">
+                {{ st.label }}
+              </div>
+            }
+          </div>
+
+          <div class="driver-quote">{{ d.text || '(No text provided; attachment-only report)' }}</div>
+
+          @if (d.image_path) {
+            <img class="th" [src]="'/uploads/' + d.image_path" alt="Uploaded incident cargo photo" style="margin-top:8px">
+          }
+          @if (d.audio_path) {
+            <audio controls [src]="'/uploads/' + d.audio_path" style="width:100%;margin-top:8px"></audio>
+          }
+        </div>
+
+        <!-- STRUCTURED TRIAGE ASSESSMENT -->
+        @if (d.triage; as t) {
+          <div class="ledger-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+              <b style="font-family:var(--font-mono);text-transform:uppercase;font-size:11px;letter-spacing:0.08em">
+                04A · Triage Assessment
+              </b>
+              <div style="display:flex;gap:5px;flex-wrap:wrap">
+                <span class="pill">{{ t.incident_type }}</span>
+                <span class="pill" [class.bad]="t.severity==='critical' || t.severity==='high'" [class.warn]="t.severity==='medium'">
+                  sev: {{ t.severity }}
+                </span>
+                <span class="pill" [class.ok]="t.confidence >= 0.7" [class.warn]="t.confidence < 0.7">
+                  conf {{ fmt(t.confidence) }}
+                </span>
+              </div>
+            </div>
+
+            <div class="reasoning-box">{{ t.summary }}</div>
+
+            <div class="kv-grid">
+              <div class="kv-key">Cargo Damage</div>
+              <div class="kv-val">{{ t.damage_assessment }}</div>
+              <div class="kv-key">Pallets Hit</div>
+              <div class="kv-val">{{ t.pallets_affected }}</div>
+              <div class="kv-key">Unit Drivable</div>
+              <div class="kv-val">{{ t.vehicle_drivable ? 'Yes (can reach relay depot)' : 'No (roadside recovery required)' }}</div>
+              <div class="kv-key">Cold Risk</div>
+              <div class="kv-val" [class.bad]="t.cold_chain_at_risk" [class.ok]="!t.cold_chain_at_risk">
+                {{ t.cold_chain_at_risk ? 'Active thermal excursion risk' : 'Within thermal envelope' }}
+              </div>
+              @if (t.transcript && t.transcript !== d.text) {
+                <div class="kv-key">Transcript</div>
+                <div class="kv-val">{{ t.transcript }}</div>
+              }
+            </div>
+          </div>
+        }
+
+        <!-- RECOVERY DECISIONS & SAFETY POLICY GATE -->
+        @for (dec of d.decisions; track dec.id) {
+          <div class="ledger-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+              <b style="font-family:var(--font-serif);font-size:16px">
+                {{ dec.mode === 'detour' ? 'Route Detour (' + dec.vehicle_id + ')' : 'Vehicle Swap -> ' + dec.vehicle_id }}
+              </b>
+              <div style="display:flex;gap:5px;align-items:center">
+                @if (dec.override_of) {
+                  <span class="pill warn">Overrode {{ dec.override_of }}</span>
+                }
+                <span class="pill" [class]="statusClass(dec.status)">{{ dec.status }}</span>
+              </div>
+            </div>
+
+            <div class="kv-grid">
+              <div class="kv-key">Handover Point</div>
+              <div class="kv-val">{{ dec.meet_label }}</div>
+              <div class="kv-key">Recovery ETA</div>
+              <div class="kv-val">{{ dec.predicted_min }} min &rarr; {{ dec.eta_local }}</div>
+              <div class="kv-key">SLA Window</div>
+              <div class="kv-val" [class.ok]="dec.sla_ok" [class.bad]="!dec.sla_ok">
+                {{ dec.sla_remaining_min }} min remaining ({{ dec.sla_ok ? 'On schedule' : 'SLA breach risk' }})
+              </div>
+              <div class="kv-key">Cold Chain</div>
+              <div class="kv-val" [class.ok]="dec.cold_ok" [class.bad]="!dec.cold_ok">
+                {{ dec.cold_ok ? 'Protected through transfer' : 'Breaches before handover' }}
+              </div>
+              <div class="kv-key">Recovery Cost</div>
+              <div class="kv-val">INR {{ dec.cost_inr?.toFixed(0) }}</div>
+              <div class="kv-key">Gate Confidence</div>
+              <div class="kv-val">{{ fmt(dec.confidence) }} (threshold 0.70)</div>
+              @if (dec.actual_min != null) {
+                <div class="kv-key">Recorded Actual</div>
+                <div class="kv-val" [class.ok]="dec.sla_held" [class.bad]="!dec.sla_held">
+                  {{ dec.actual_min }} min ({{ dec.sla_held ? 'SLA held' : 'SLA missed' }})
+                </div>
+              }
+            </div>
+
+            @if (dec.escalation) {
+              <div class="escalation-banner">
+                SAFETY GATE ESCALATION: {{ dec.escalation }}
+              </div>
+            }
+
+            <div class="reasoning-box">{{ dec.reasoning }}</div>
+
+            <div class="action-bar">
+              @if (dec.status === 'pending_approval') {
+                <button type="button" class="ok-btn" (click)="act('approve', dec.id)">Approve &amp; Dispatch</button>
+              }
+              @if (dec.status === 'pending_approval' || dec.status === 'executed') {
+                <button type="button" (click)="openOverride(dec.id)">Dispatcher Override</button>
+              }
+              @if (dec.status === 'executed' && dec.actual_min == null) {
+                <button type="button" class="pri" (click)="act('simulate-outcome', dec.id)">Simulate Delivery Outcome</button>
+              }
+              <span style="flex:1"></span>
+              <button type="button" (click)="rate(dec.id, 1)" title="Endorse decision"
+                [style.border-color]="dec.rating === 1 ? 'var(--ok)' : null"
+                [style.color]="dec.rating === 1 ? 'var(--ok)' : null">+1 Endorse</button>
+              <button type="button" (click)="rate(dec.id, -1)" title="Flag decision"
+                [style.border-color]="dec.rating === -1 ? 'var(--bad)' : null"
+                [style.color]="dec.rating === -1 ? 'var(--bad)' : null">-1 Flag</button>
+            </div>
+          </div>
+        }
+
+        <!-- DISPATCHER OVERRIDE DRAWER -->
+        @if (ovr.open && hasDecision(d, ovr.did)) {
+          <div class="ledger-card active-card">
+            <div class="field-label">
+              <span>Dispatcher Manual Override</span>
+              <span>Creates labeled feedback record</span>
+            </div>
+            <select [(ngModel)]="ovrVehicle" style="margin-top:4px">
+              @for (c of ovr.cands; track c.vehicle_id) {
+                <option [value]="c.vehicle_id">
+                  {{ c.vehicle_id }} ({{ c.predicted_min }} min · INR {{ c.cost_inr }} · {{ c.cold_ok ? 'cold chain ok' : 'cold breach' }})
+                </option>
+              }
+            </select>
+
+            @if (ovr.excluded.length) {
+              <div style="margin-top:8px;font-family:var(--font-mono);font-size:10px;color:var(--mut)">
+                Excluded units:
+                @for (ex of ovr.excluded; track ex.vehicle_id) {
+                  <div>· {{ ex.vehicle_id }}: {{ ex.reason }}</div>
+                }
+              </div>
+            }
+
+            <input [(ngModel)]="ovrReason" placeholder="Override rationale (stored for nightly learning review)" style="margin-top:8px">
+            <div class="action-bar">
+              <button type="button" class="pri" (click)="doOverride()">Commit Override</button>
+              <button type="button" (click)="cancelOverride()">Cancel</button>
+            </div>
+          </div>
+        }
+
+        @if (d.summary) {
+          <div class="ledger-card">
+            <div class="field-label"><span>Audit Ledger Summary</span></div>
+            <div style="font-size:12.5px;color:var(--ink)">{{ d.summary }}</div>
+          </div>
+        }
+
+        <!-- MULTI-AGENT EXECUTION TRACE -->
+        <div class="ledger-card">
+          <div class="field-label">
+            <span>Multi-Agent &amp; MCP Tool Trace</span>
+            <span>{{ d.trace.length }} events</span>
+          </div>
+          <div class="tl">
+            @for (e of d.trace; track $index) {
+              <div class="e" [class.t]="e.kind==='tool_call'" [class.r]="e.kind==='tool_result'" [class.x]="e.name==='adk_error' || e.name==='error'">
+                <div class="who">{{ e.author }} · {{ e.name }}</div>
+                @if (e.kind === 'text' && typeof e.data === 'string') {
+                  <div style="font-size:12px;margin-top:2px">{{ e.data }}</div>
+                } @else {
+                  <details>
+                    <summary>
+                      {{ e.kind === 'tool_call' ? 'call' : 'result' }} · <b>{{ e.name }}</b>
+                      {{ e.kind === 'tool_call' ? json(e.data, 80) : '' }}
+                    </summary>
+                    <pre>{{ json(e.data) }}</pre>
+                  </details>
+                }
+              </div>
+            }
+            @if (!d.trace.length) {
+              <span class="mut" style="font-family:var(--font-mono);font-size:11px">Awaiting agent pipeline events...</span>
+            }
+          </div>
+        </div>
+      }
+    </section>
+
+    <!-- 05: FEEDBACK LOOP & LEARNED RULES -->
+    <div class="sec-head">
+      <span><span class="sec-index">05</span>Feedback Loop &amp; Learned Rules</span>
+      <span class="sec-meta">Post-Outcome Calibration</span>
+    </div>
+    <section class="sec-body">
+      @if (state(); as s) {
+        <div class="ledger-card">
+          <div class="stats-strip">
+            <div class="stat-box">
+              <div class="stat-box-label">Resolved</div>
+              <div class="stat-box-val">{{ s.stats.resolved }}</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-box-label">ETA Error</div>
+              <div class="stat-box-val">{{ s.stats.mape_pct == null ? 'n/a' : s.stats.mape_pct + '%' }}</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-box-label">SLA Held</div>
+              <div class="stat-box-val">{{ s.stats.sla_held_pct == null ? 'n/a' : s.stats.sla_held_pct + '%' }}</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-box-label">Overrides</div>
+              <div class="stat-box-val">{{ s.stats.overrides }}</div>
+            </div>
+          </div>
+
+          <div class="field-label">
+            <span>Active Policy Calibration Rules</span>
+            <span>{{ s.rules.length }} active</span>
+          </div>
+          @for (r of s.rules; track r.incident_type) {
+            <div class="rule-entry">{{ r.text }}</div>
+          }
+          @if (!s.rules.length) {
+            <div class="mut" style="font-family:var(--font-mono);font-size:11px;padding:4px 0">
+              No calibration rules written yet. Simulate outcomes on resolved decisions to trigger review learning.
+            </div>
+          }
+
+          <div class="action-bar">
+            <button type="button" [disabled]="learning" (click)="learnNow()">
+              {{ learning ? 'Calibrating...' : 'Run Calibration Job Now' }}
+            </button>
+          </div>
+        </div>
+      }
+    </section>
+
+    <!-- 06: OUTBOUND DISPATCH WIRE -->
+    <div class="sec-head">
+      <span><span class="sec-index">06</span>Outbound Dispatch Wire</span>
+      @if (state(); as s) {
+        <span class="sec-meta">{{ s.notifications.length }} dispatches</span>
+      }
+    </div>
+    <section class="sec-body">
+      @if (state(); as s) {
+        @for (n of s.notifications; track n.id) {
+          <div class="ledger-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span class="pill">{{ n.party }}</span>
+              <span class="mut" style="font-family:var(--font-mono);font-size:10px">
+                Incident #{{ n.incident_id }} · via {{ n.channel }}
+              </span>
+            </div>
+            <div style="font-size:12px;color:var(--ink)">{{ n.message }}</div>
+          </div>
+        }
+        @if (!s.notifications.length) {
+          <div class="ledger-card" style="color:var(--mut);font-family:var(--font-mono);font-size:11px">
+            No outbound party notifications transmitted yet.
+          </div>
+        }
+      }
+    </section>
+  </aside>
+
 </main>
 
-<footer>DOCK-TO-DOOR · AGENTIC FREIGHT RECOVERY · CHENNAI &harr; BENGALURU CORRIDOR</footer>
+<!-- FOOTER LEDGER SPEC -->
+<footer class="ledger-footer">
+  <span>DOCK-TO-DOOR // NH-48 FREIGHT EXCEPTION CONTROL (CHENNAI HUB &harr; BENGALURU HUB · 348 KM)</span>
+  <span>SAFETY GATE: CONFIDENCE &ge; 0.70 · AUTO COST CEILING INR 18,000 · REEFER EXCURSION LIMIT 60 MIN ABOVE 8.0°C</span>
+</footer>

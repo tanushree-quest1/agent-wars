@@ -9,6 +9,8 @@ pip install -r requirements.txt
 cp .env.example .env        # optional: add GOOGLE_API_KEY (Gemini) and GOOGLE_MAPS_API_KEY (Routes API)
 python run.py               # http://127.0.0.1:8000
 ```
+The UI is an Angular app in `web/`; the built bundle is committed under `app/static/` and served by the same FastAPI process.
+To change it: `cd web && npm install && npm run watch` (rebuilds into `app/static/` on save; `npm run build` for a one-off).
 No keys? It still runs end to end in **offline mode** (rule-based triage, haversine ETAs) over the *same* tools and DB.
 The header badges show which mode you're in.
 
