@@ -8,7 +8,7 @@ services:
     healthcheck: {test: ["CMD-SHELL", "pg_isready -U temporal"], interval: 5s, retries: 12}
 
   temporal:
-    image: temporalio/auto-setup:1.32.0
+    image: temporalio/auto-setup:1.29.7
     depends_on: {temporal-postgres: {condition: service_healthy}}
     environment: {
       DB: postgres12, DB_PORT: 5432,

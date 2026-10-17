@@ -15,9 +15,9 @@ sys.path.insert(0, str(ROOT))
 os.environ.update(TEMPORAL_URL="localhost:7233", CLICKHOUSE_URL="http://localhost:8123",
                   CLICKHOUSE_USER="d2d", CLICKHOUSE_PASSWORD="d2d",
                   D2D_DB=str(ROOT / "data" / "e2e.sqlite"), PORT="8666",
-                  TEMPORAL_WF_PREFIX=f"e2e-{uuid.uuid4().hex[:6]}-")   # old open workflows keep their ids
-os.environ.pop("GOOGLE_API_KEY", None)
-os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+                  TEMPORAL_WF_PREFIX=f"e2e-{uuid.uuid4().hex[:6]}-",   # old open workflows keep their ids
+                  TEMPORAL_TASK_QUEUE=f"e2e-q-{uuid.uuid4().hex[:6]}",
+                  GOOGLE_API_KEY="", GOOGLE_MAPS_API_KEY="")
 BASE = "http://127.0.0.1:8666"
 FAILURES = []
 
@@ -69,9 +69,9 @@ async def mcp_check():
 
 
 def main():
-    asyncio.run(mcp_check())
     from app import db, seed
-    db.init(); seed.seed()   # fresh fleet + telemetry before the app starts
+    db.init(); seed.seed()   # fresh fleet + telemetry before MCP check and app start
+    asyncio.run(mcp_check())
     log = open(ROOT / "data" / "e2e.log", "w")
     srv = subprocess.Popen([sys.executable, "run.py"], cwd=str(ROOT), stdout=log, stderr=subprocess.STDOUT)
     try:

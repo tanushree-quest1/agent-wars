@@ -384,7 +384,7 @@
                 <span class="pill" [class.bad]="t.severity==='critical' || t.severity==='high'" [class.warn]="t.severity==='medium'">
                   sev: {{ t.severity }}
                 </span>
-                <span class="pill" [class.ok]="t.confidence >= 0.7" [class.warn]="t.confidence < 0.7">
+                <span class="pill" [class.ok]="t.confidence >= 0.6" [class.warn]="t.confidence < 0.6">
                   conf {{ fmt(t.confidence) }}
                 </span>
               </div>
@@ -442,7 +442,7 @@
               <div class="kv-key">Recovery Cost</div>
               <div class="kv-val">INR {{ dec.cost_inr?.toFixed(0) }}</div>
               <div class="kv-key">Gate Confidence</div>
-              <div class="kv-val">{{ fmt(dec.confidence) }} (threshold 0.70)</div>
+              <div class="kv-val">{{ fmt(dec.confidence) }} (threshold 0.60)</div>
               @if (dec.actual_min != null) {
                 <div class="kv-key">Recorded Actual</div>
                 <div class="kv-val" [class.ok]="dec.sla_held" [class.bad]="!dec.sla_held">
@@ -633,5 +633,5 @@
 <!-- FOOTER LEDGER SPEC -->
 <footer class="ledger-footer">
   <span>DOCK-TO-DOOR // NH-48 FREIGHT EXCEPTION CONTROL (CHENNAI HUB &harr; BENGALURU HUB · 348 KM)</span>
-  <span>SAFETY GATE: CONFIDENCE &ge; 0.70 · AUTO COST CEILING INR 18,000 · REEFER EXCURSION LIMIT 60 MIN ABOVE 8.0°C</span>
+  <span>SAFETY GATE: CONFIDENCE &ge; 0.60 · AUTO COST CEILING INR 15,000 · REEFER EXCURSION LIMIT 60 MIN ABOVE 8.0°C</span>
 </footer>

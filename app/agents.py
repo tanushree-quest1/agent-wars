@@ -145,14 +145,14 @@ Learned rules and past cases from the feedback loop (use them):
 {similar_context}"""
 
 SCOUT_INSTR = """You are the SCOUT agent. Incident #{incident_id} on vehicle {vehicle_id}. Triage result: {triage}
-Do this in order: call get_shipment_state(vehicle_id), get_telemetry_summary(vehicle_id), recall_similar_incidents(triage.incident_type),
-then find_alternate_vehicles(incident_id). Also call scan_fleet_anomalies if a cooling fault is in play.
+In your first turn, call get_shipment_state(vehicle_id), get_telemetry_summary(vehicle_id), recall_similar_incidents(triage.incident_type),
+and find_alternate_vehicles(incident_id) together in parallel (plus scan_fleet_anomalies if a cooling fault is in play).
 Telemetry is ground truth: if the driver reports a cooling fault but telemetry shows none (or vice versa), note it.
 List every candidate (vehicle_id, predicted_min, sla_ok, cold_ok, cost_inr) best first, as your structured output."""
 
 ASSESS_TMPL = """You are a FEASIBILITY assessor. Incident #{inc_id}: vehicle {vid} ({cargo}, {temp_class}) needs a swap.
 Your candidate is {cid} ({pred} min predicted, cold_ok={cold}, sla_ok={sla}, cost INR {cost}).
-Cross-check it: call get_shipment_state({cid}) and get_telemetry_summary({vid}). Verify status, position and capacity make the transfer realistic
+Cross-check it: call get_shipment_state({cid}) and get_telemetry_summary({vid}) together in parallel. Verify status, position and capacity make the transfer realistic
 and that the cold chain survives until the handover. Reply with ONLY JSON: viable, key_risk (one line), note."""
 
 JUDGE_INSTR = """You are the PLANNING agent. Incident #{incident_id} on vehicle {vehicle_id}. Triage: {triage}
@@ -163,10 +163,10 @@ Reply with ONLY a JSON object with keys chosen_vehicle_id, confidence (0-1, neve
 
 ACT_INSTR = """You are the ACTION agent. Incident #{incident_id}. Triage: {triage}. Plan: {plan}
 1. Call reroute(incident_id, replacement_vehicle_id=chosen_vehicle_id, confidence, reasoning). The tool enforces the safety policy.
-2. If status is executed: if meet_depot is set call reserve_dock_slot(depot_id, incident_id); then call notify for driver, replacement_driver, customer and dispatcher with concise messages including meet point and ETA (never internal costs to the customer).
-3. If status is pending_approval: do NOT retry or choose another vehicle. Call notify to dispatcher only, with your recommendation and the escalation reasons.
-4. If rejected: notify the dispatcher with the reason.
-5. Always finish with log_decision(incident_id, summary)."""
+2. In your next turn, execute all remaining tool calls together in parallel:
+   - If status is executed: if meet_depot is set call reserve_dock_slot(depot_id, incident_id); call notify for driver, replacement_driver, customer and dispatcher with concise messages including meet point and ETA (never internal costs to the customer); and call log_decision(incident_id, summary).
+   - If status is pending_approval: do NOT retry or choose another vehicle. Call notify to dispatcher only, with your recommendation and the escalation reasons, plus log_decision(incident_id, summary).
+   - If rejected: call notify to dispatcher with the reason, plus log_decision(incident_id, summary)."""
 
 
 def _mcp(names):
@@ -216,19 +216,21 @@ async def adk(inc_id, image, audio):
     triage_agent = LlmAgent(name="triage_agent", model=MODEL, instruction=TRIAGE_INSTR, output_schema=Triage, output_key="triage")
     await _consume(Runner(agent=triage_agent, app_name=APP, session_service=svc), uid, sid, types.Content(role="user", parts=parts), inc_id)
     sess = await svc.get_session(app_name=APP, user_id=uid, session_id=sid)
-    save_triage(inc_id, _as_dict(sess.state["triage"]))
+    triage_dict = _as_dict(sess.state["triage"])
+    save_triage(inc_id, triage_dict)
 
     read_ts, act_ts = _mcp(["get_shipment_state", "get_telemetry_summary", "recall_similar_incidents", "find_alternate_vehicles", "scan_fleet_anomalies"]), \
         _mcp(["reroute", "reserve_dock_slot", "notify", "log_decision"])
     extra_ts = []
-    async def _state():
-        return (await svc.get_session(app_name=APP, user_id=uid, session_id=sid)).state
     try:
         # 1) scout: read tools -> ranked candidates
+        scout_sid = f"{sid}-scout"
+        await svc.create_session(app_name=APP, user_id=uid, session_id=scout_sid, state={"incident_id": inc_id, "vehicle_id": vid, "triage": triage_dict})
         scout = LlmAgent(name="scout_agent", model=MODEL, instruction=SCOUT_INSTR, tools=[read_ts], output_schema=Candidates, output_key="candidates")
-        await _consume(Runner(agent=scout, app_name=APP, session_service=svc), uid, sid,
+        await _consume(Runner(agent=scout, app_name=APP, session_service=svc), uid, scout_sid,
                        types.Content(role="user", parts=[types.Part(text=f"Scout recovery options for incident {inc_id}.")]), inc_id)
-        cands = [c for c in (_as_dict((await _state()).get("candidates") or {}).get("candidates") or []) if isinstance(c, dict) and c.get("vehicle_id")][:3]
+        scout_state = (await svc.get_session(app_name=APP, user_id=uid, session_id=scout_sid)).state
+        cands = [c for c in (_as_dict(scout_state.get("candidates") or {}).get("candidates") or []) if isinstance(c, dict) and c.get("vehicle_id")][:3]
         if not cands:
             trace(inc_id, "adk_agent", "text", "escalate", "No feasible replacement. Human dispatcher required.")
             tools.notify(incident_id=inc_id, party="dispatcher", channel="dashboard",
@@ -245,21 +247,31 @@ async def adk(inc_id, image, audio):
                                                                      cid=c["vehicle_id"], pred=c.get("predicted_min"), cold=c.get("cold_ok"), sla=c.get("sla_ok"), cost=c.get("cost_inr")),
                                       tools=[ats], output_schema=Assessment, output_key=f"assess_{c['vehicle_id']}"))
         assessments = {}
+        fanout_sid = f"{sid}-fanout"
+        await svc.create_session(app_name=APP, user_id=uid, session_id=fanout_sid, state={})
         try:
-            await _consume(Runner(agent=ParallelAgent(name="feasibility_fanout", sub_agents=assessors), app_name=APP, session_service=svc), uid, sid,
+            await _consume(Runner(agent=ParallelAgent(name="feasibility_fanout", sub_agents=assessors), app_name=APP, session_service=svc), uid, fanout_sid,
                            types.Content(role="user", parts=[types.Part(text=f"Assess every candidate for incident {inc_id} now, in parallel.")]), inc_id)
-            st = await _state()
+            st = (await svc.get_session(app_name=APP, user_id=uid, session_id=fanout_sid)).state
             assessments = {c["vehicle_id"]: st.get(f"assess_{c['vehicle_id']}") for c in cands if st.get(f"assess_{c['vehicle_id']}")}
         except Exception as e:
             trace(inc_id, "system", "text", "fanout_error", f"{type(e).__name__}: {e}; judge proceeds on scout data alone")
         # 3+4) judge, then act
-        t = _as_dict((await _state()).get("triage") or {})
-        judge = LlmAgent(name="planner_agent", model=MODEL, output_schema=Plan, output_key="plan",
-                         instruction=JUDGE_INSTR.format(incident_id=inc_id, vehicle_id=vid, triage=json.dumps(t, default=str)[:900],
-                                                       candidates=json.dumps(cands, default=str)[:900], assessments=json.dumps(assessments, default=str)[:900]))
+        plan_sid = f"{sid}-plan"
+        await svc.create_session(app_name=APP, user_id=uid, session_id=plan_sid,
+                                 state={"incident_id": inc_id, "vehicle_id": vid,
+                                        "triage": json.dumps(triage_dict, default=str)[:900],
+                                        "candidates": json.dumps(cands, default=str)[:900],
+                                        "assessments": json.dumps(assessments, default=str)[:900]})
+        judge = LlmAgent(name="planner_agent", model=MODEL, output_schema=Plan, output_key="plan", instruction=JUDGE_INSTR)
         actor = LlmAgent(name="action_agent", model=MODEL, instruction=ACT_INSTR, tools=[act_ts])
-        await _consume(Runner(agent=SequentialAgent(name="plan_and_act", sub_agents=[judge, actor]), app_name=APP, session_service=svc), uid, sid,
-                       types.Content(role="user", parts=[types.Part(text=f"Plan and act on incident {inc_id}.")]), inc_id)
+        try:
+            await _consume(Runner(agent=SequentialAgent(name="plan_and_act", sub_agents=[judge, actor]), app_name=APP, session_service=svc), uid, plan_sid,
+                           types.Content(role="user", parts=[types.Part(text=f"Plan and act on incident {inc_id}.")]), inc_id)
+        except Exception:
+            done = db.one("SELECT summary FROM incidents WHERE id=?", (inc_id,))
+            if not (done and done.get("summary") and db.one("SELECT 1 x FROM decisions WHERE incident_id=?", (inc_id,))):
+                raise
     finally:
         for ts in (read_ts, act_ts, *extra_ts):
             try:

@@ -8,7 +8,7 @@ flowchart LR
     FastAPI --> Temporal["Temporal Durable Workflow\n(or Direct Async Task)"]
     Temporal --> Pipeline["Agent Pipeline\n(Gemini ADK or Offline Rules)"]
     Pipeline <--> MCP["MCP Server (10 Tools)\nSQLite WAL + ClickHouse"]
-    MCP --> Gate{"Safety Policy Gate\nconf >= 0.70\ncost <= INR 18,000\ncold_ok == true"}
+    MCP --> Gate{"Safety Policy Gate\nconf >= 0.60\ncost <= INR 15,000\ncold_ok == true"}
     Gate -->|Pass| Auto["Auto-Execute Swap / Detour\nReserve Dock + Notify 4 Parties"]
     Gate -->|Escalate| Human["Dispatcher Workbench\nApprove / Override / Rate"]
     Auto --> Outcome["Delivery Outcome\n& Calibration Loop"]
@@ -67,7 +67,7 @@ When an exception is selected in the top tab strip of Section `04`:
 2. **Triage Assessment (`04A`)**: Displays classified incident type, severity, confidence score, pallet damage, drivability, and thermal excursion risk.
 3. **Recovery Decision & Safety Gate Card**:
    - Shows the chosen recovery action (`Vehicle Swap -> SPR-X` or `Route Detour`), handover location, predicted recovery duration, local IST ETA, remaining SLA margin, cold-chain protection status, cost in INR, and effective confidence.
-   - **If `status == pending_approval`**: The banner explains which safety gate rule triggered human escalation (e.g., confidence below `0.70`, cost above `INR 18,000`, or cold-chain breach risk).
+   - **If `status == pending_approval`**: The banner explains which safety gate rule triggered human escalation (e.g., confidence below `0.60`, cost above `INR 15,000`, or cold-chain breach risk).
      - Click **Approve & Dispatch** to execute the recommended plan immediately (signals the waiting Temporal workflow if Temporal is active).
      - Click **Dispatcher Override** to open the manual override drawer.
 4. **Dispatcher Manual Override**:
@@ -95,13 +95,19 @@ All runtime settings are loaded in `app/config.py`. Copy `.env.example` to `.env
 | Variable | Default | Purpose |
 | :--- | :--- | :--- |
 | `GOOGLE_API_KEY` | *(empty)* | Enables live Gemini multimodal ADK agents (`adk()` in `app/agents.py`). When unset, runs deterministic offline rules. |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model used by `triage_agent`, `scout_agent`, `assess_*`, `planner_agent`, and `action_agent`. |
 | `GOOGLE_MAPS_API_KEY` | *(empty)* | Enables live traffic-aware **Google Routes API** (`computeRoutes`) in `app/geo.py`. Falls back to Haversine road-factor ETAs when unset. |
-| `TEMPORAL_URL` | *(empty)* | Set to `localhost:7233` (or `temporal:7233` in Docker) to run incidents as durable Temporal workflows (`app/temporal_workflows.py`). |
-| `CLICKHOUSE_URL` | *(empty)* | Set to `http://localhost:8123` to mirror `telemetry`, `tool_log`, and `decision_events` to ClickHouse and enable OLAP fleet drift scans. |
-| `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` | `default` / *(empty)* | ClickHouse credentials (`d2d` / `d2d` in `docker-compose.yml`). |
-| `D2D_DB` | `data/d2d.sqlite` | Path to the primary SQLite WAL database file. |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model to use when `GOOGLE_API_KEY` is set. |
+| `MIN_CONFIDENCE` | `0.6` | Minimum effective confidence required inside `reroute` for autonomous execution. |
+| `AUTO_COST_LIMIT_INR` | `15000` | Maximum recovery cost in INR allowed inside `reroute` without human sign-off. |
+| `LEARN_MIN_SAMPLES` | `2` | Minimum resolved cases of an incident type before the learner writes an ETA buffer rule. |
+| `TEMPORAL_URL` | `localhost:7233` *(or empty)* | Temporal server address (leave empty to run in-memory asyncio tasks without Temporal). |
+| `TEMPORAL_TASK_QUEUE` | `dock-to-door` | Temporal worker task queue name. |
+| `TEMPORAL_WF_PREFIX` | `incident-` | Prefix for per-incident Temporal workflow IDs. |
 | `NIGHTLY_REVIEW_MIN` | `1440` | Interval in minutes for the recurring Temporal `NightlyReviewWorkflow` timer. |
+| `CLICKHOUSE_URL` | `http://localhost:8123` *(or empty)* | ClickHouse analytics & telemetry sink URL (leave empty to fall back to SQLite). |
+| `CLICKHOUSE_DB` | `d2d` | ClickHouse database name. |
+| `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` | `d2d` / `d2d` | ClickHouse credentials. |
+| `D2D_DB` | `data/d2d.sqlite` | Path to the primary SQLite WAL database file. |
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | Bind address and port for Uvicorn (`run.py`). |
 
 ---
@@ -150,9 +156,9 @@ npm --prefix web run build
   - **Via API**: `curl -X POST http://127.0.0.1:8000/api/learn`
 
 - **Tuning Server-Side Safety Gate Policy**:
-  The safety policy is enforced inside `reroute()` in `app/tools.py` so no prompt injection or LLM hallucination can bypass it. Admins can adjust thresholds in `app/config.py` and `app/tools.py`:
-  - `MIN_CONFIDENCE = 0.7`: Minimum effective confidence required for autonomous execution.
-  - `AUTO_COST_LIMIT_INR = 18000.0`: Maximum recovery cost in INR allowed without human sign-off.
+  The safety policy is enforced inside `reroute()` in `app/tools.py` so no prompt injection or LLM hallucination can bypass it. Admins can adjust thresholds in `.env` / `app/config.py`:
+  - `MIN_CONFIDENCE = 0.6`: Minimum effective confidence required for autonomous execution.
+  - `AUTO_COST_LIMIT_INR = 15000.0`: Maximum recovery cost in INR allowed without human sign-off.
   - `COLD_TOLERANCE_MIN = 60`: Maximum cumulative minutes above `8.0°C` before cold-chain cargo is flagged at risk.
   - `LEARN_MIN_SAMPLES = 2`: Minimum resolved cases of an incident type before the learner writes an ETA buffer rule.
 
