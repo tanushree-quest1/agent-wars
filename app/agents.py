@@ -268,33 +268,23 @@ async def adk(inc_id, image, audio):
         trace(inc_id, "triage_agent", "text", "cross-check", "Telemetry does NOT show a temperature anomaly -> confidence capped at 0.55")
     save_triage(inc_id, triage_dict)
 
-    read_ts, act_ts = _mcp(["get_shipment_state", "get_telemetry_summary", "recall_similar_incidents", "find_alternate_vehicles", "scan_fleet_anomalies"]), \
-        _mcp(["reroute", "reserve_dock_slot", "notify", "log_decision"])
+    read_ts, act_ts = None, _mcp(["reroute", "reserve_dock_slot", "notify", "log_decision"])
     extra_ts = []
     try:
-        # 1) scout: read tools -> ranked candidates, grounded against deterministic find_alternate_vehicles
-        scout_sid = f"{sid}-scout"
-        await svc.create_session(app_name=APP, user_id=uid, session_id=scout_sid, state={"incident_id": inc_id, "vehicle_id": vid, "triage": triage_dict})
-        scout = LlmAgent(name="scout_agent", model=MODEL, instruction=SCOUT_INSTR, tools=[read_ts], before_tool_callback=_guard_tool, output_schema=Candidates, output_key="candidates")
-        await _consume(Runner(agent=scout, app_name=APP, session_service=svc), uid, scout_sid,
-                       types.Content(role="user", parts=[types.Part(text=f"Scout recovery options for incident {inc_id}.")]), inc_id)
-        scout_state = (await svc.get_session(app_name=APP, user_id=uid, session_id=scout_sid)).state
-        raw_scout = [_as_dict(c) for c in (_as_dict(scout_state.get("candidates") or {}).get("candidates") or [])]
-        gt_by_id = {c["vehicle_id"]: c for c in (tools.find_alternate_vehicles(inc_id).get("candidates") or []) if c.get("vehicle_id")}
-        ordered_ids = [c["vehicle_id"] for c in raw_scout if isinstance(c, dict) and c.get("vehicle_id") in gt_by_id]
-        for vid_cand in gt_by_id:
-            if vid_cand not in ordered_ids:
-                ordered_ids.append(vid_cand)
-        cands = [gt_by_id[k] for k in ordered_ids[:3]]
+        # 1) scout: deterministic tool call (was an LLM that just echoed this output) + telemetry/recall already in triage context
+        trace(inc_id, "scout", "tool_call", "find_alternate_vehicles", {"incident_id": inc_id})
+        found = tools.find_alternate_vehicles(inc_id)
+        trace(inc_id, "scout", "tool_result", "find_alternate_vehicles", found)
+        cands = (found.get("candidates") or [])[:3]
         if not cands:
             trace(inc_id, "adk_agent", "text", "escalate", "No feasible replacement. Human dispatcher required.")
             tools.notify(incident_id=inc_id, party="dispatcher", channel="dashboard",
                          message=f"No feasible vehicle for incident #{inc_id}. Manual action needed.")
             tools.log_decision(incident_id=inc_id, summary="No feasible replacement found; escalated.")
             return
-        # 2) fan-out: one feasibility assessor per candidate, in parallel (each with its own stdio MCP toolset)
+        # 2) fan-out: one feasibility assessor per swap candidate, in parallel (skipped for same-truck detours)
         assessors = []
-        for c in cands:
+        for c in (cands if cands[0]["vehicle_id"] != vid else []):
             ats = _mcp(["get_shipment_state", "get_telemetry_summary"])
             extra_ts.append(ats)
             assessors.append(LlmAgent(name=f"assess_{c['vehicle_id']}".replace("-", "_"), model=MODEL,
@@ -305,10 +295,11 @@ async def adk(inc_id, image, audio):
         fanout_sid = f"{sid}-fanout"
         await svc.create_session(app_name=APP, user_id=uid, session_id=fanout_sid, state={"incident_id": inc_id})
         try:
-            await _consume(Runner(agent=ParallelAgent(name="feasibility_fanout", sub_agents=assessors), app_name=APP, session_service=svc), uid, fanout_sid,
-                           types.Content(role="user", parts=[types.Part(text=f"Assess every candidate for incident {inc_id} now, in parallel.")]), inc_id)
-            st = (await svc.get_session(app_name=APP, user_id=uid, session_id=fanout_sid)).state
-            assessments = {c["vehicle_id"]: _as_dict(st.get(f"assess_{c['vehicle_id']}")) for c in cands if st.get(f"assess_{c['vehicle_id']}")}
+            if assessors:
+                await _consume(Runner(agent=ParallelAgent(name="feasibility_fanout", sub_agents=assessors), app_name=APP, session_service=svc), uid, fanout_sid,
+                               types.Content(role="user", parts=[types.Part(text=f"Assess every candidate for incident {inc_id} now, in parallel.")]), inc_id)
+                st = (await svc.get_session(app_name=APP, user_id=uid, session_id=fanout_sid)).state
+                assessments = {c["vehicle_id"]: _as_dict(st.get(f"assess_{c['vehicle_id']}")) for c in cands if st.get(f"assess_{c['vehicle_id']}")}
         except Exception as e:
             trace(inc_id, "system", "text", "fanout_error", f"{type(e).__name__}: {e}; judge proceeds on scout data alone")
         # 3+4) judge, then act
@@ -328,7 +319,7 @@ async def adk(inc_id, image, audio):
             if not (done and done.get("summary") and db.one("SELECT 1 x FROM decisions WHERE incident_id=?", (inc_id,))):
                 raise
     finally:
-        for ts in (read_ts, act_ts, *extra_ts):
+        for ts in (act_ts, *extra_ts):
             try:
                 await ts.close()
             except Exception:
