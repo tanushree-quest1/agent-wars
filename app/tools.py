@@ -118,13 +118,33 @@ def _depot_ahead(truck, dest):
 
 def _plan_for(ctx, repl_id):
     vid, typ = ctx["vehicle_id"], ctx["type"]
-    tv, ship = db.one("SELECT * FROM vehicles WHERE id=?", (vid,)), _shipment_for(vid)
-    if not tv or not ship:
-        return {"error": f"no active shipment for {vid}"}
-    dest, truck = (ship["dest_lat"], ship["dest_lon"]), (tv["lat"], tv["lon"])
-    buf = _rule(ctx["raw_type"]).get("eta_buffer_pct") or 0
-    sla_rem = _sla_remaining(ship)
-    direct = geo.route(truck, dest)
+    if "_shared" not in ctx:
+        tv, ship = db.one("SELECT * FROM vehicles WHERE id=?", (vid,)), _shipment_for(vid)
+        if not tv or not ship:
+            ctx["_shared"] = {"error": f"no active shipment for {vid}"}
+        else:
+            dest, truck = (ship["dest_lat"], ship["dest_lon"]), (tv["lat"], tv["lon"])
+            dep = _depot_ahead(truck, dest) if ctx["drivable"] else None
+            spoil = None
+            if ship["temp_class"] == "reefer" and typ in ("reefer_failure", "breakdown"):
+                spoil = _telemetry(vid).get("spoilage_in_min")
+                spoil = COLD_TOLERANCE_MIN if spoil is None else spoil
+            ctx["_shared"] = {
+                "tv": tv, "ship": ship, "dest": dest, "truck": truck,
+                "buf": _rule(ctx["raw_type"]).get("eta_buffer_pct") or 0,
+                "sla_rem": _sla_remaining(ship),
+                "direct": geo.route(truck, dest),
+                "dep": dep,
+                "dep_tt": geo.route(truck, (dep["lat"], dep["lon"])) if dep else None,
+                "dep_l2": geo.route((dep["lat"], dep["lon"]), dest) if dep else None,
+                "spoil": spoil,
+            }
+    sh = ctx["_shared"]
+    if "error" in sh:
+        return {"error": sh["error"]}
+    ship, dest, truck, buf, sla_rem, direct, dep, spoil = (
+        sh["ship"], sh["dest"], sh["truck"], sh["buf"], sh["sla_rem"], sh["direct"], sh["dep"], sh["spoil"]
+    )
     p = {"vehicle_id": repl_id, "shipment_id": ship["id"], "customer": ship["customer"], "buffer_pct": buf, "sla_remaining_min": round(sla_rem)}
 
     if repl_id == vid:  # detour with the same truck
@@ -147,15 +167,10 @@ def _plan_for(ctx, repl_id):
         repl = (rv["lat"], rv["lon"])
         a = geo.route(repl, truck)
         opts = [{"label": "roadside at breakdown point", "depot": None, "meet": truck, "t_meet": a["minutes"], "l1": a, "l2": direct}]
-        dep = _depot_ahead(truck, dest) if ctx["drivable"] else None
         if dep:
             dp = (dep["lat"], dep["lon"])
-            tt, tr, l2 = geo.route(truck, dp), geo.route(repl, dp), geo.route(dp, dest)
+            tt, tr, l2 = sh["dep_tt"], geo.route(repl, dp), sh["dep_l2"]
             opts.append({"label": dep["name"], "depot": dep["id"], "meet": dp, "t_meet": max(tt["minutes"], tr["minutes"]), "l1": tr, "l2": l2})
-        spoil = None
-        if ship["temp_class"] == "reefer" and typ in ("reefer_failure", "breakdown"):
-            spoil = _telemetry(vid).get("spoilage_in_min")
-            spoil = COLD_TOLERANCE_MIN if spoil is None else spoil
         for o in opts:
             o["t_transfer"] = o["t_meet"] + HANDLING_MIN
             o["raw"] = o["t_transfer"] + o["l2"]["minutes"]

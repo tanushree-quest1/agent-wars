@@ -205,10 +205,15 @@ def _guard_tool(tool, args, tool_context):
 
 
 def _mcp(names):
-    from google.adk.tools.mcp_tool import McpToolset, StdioConnectionParams
-    from mcp import StdioServerParameters
-    params = StdioServerParameters(command=sys.executable, args=["-m", "app.mcp_server"], env=dict(os.environ), cwd=str(ROOT))
-    return McpToolset(connection_params=StdioConnectionParams(server_params=params, timeout=30), tool_filter=names)
+    """In-process toolset over the same tools.* functions the MCP server exposes: no subprocess spawn + handshake per agent (latency)."""
+    from google.adk.tools.base_toolset import BaseToolset
+    from google.adk.tools.function_tool import FunctionTool
+
+    class _Local(BaseToolset):
+        async def get_tools(self, readonly_context=None):
+            return [FunctionTool(getattr(tools, n)) for n in names]
+
+    return _Local()
 
 
 def _as_dict(v):
